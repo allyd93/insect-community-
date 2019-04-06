@@ -1,0 +1,1512 @@
+#install.packages("agricolae", dependencies=TRUE);install.packages("ggpubr", dependencies=TRUE);install.packages("MASS", dependencies=TRUE);install.packages("dplyr", dependencies=TRUE);install.packages("ggplot2", dependencies=TRUE);
+#install.packages("vegan", dependencies=TRUE);install.packages("car", dependencies=TRUE);install.packages("AER", dependencies=TRUE);install.packages("mgvc", dependencies=TRUE);
+#install.packages("lme4", dependencies=TRUE);install.packages("tidyr", dependencies=TRUE);install.packages("viridis", dependencies=TRUE);install.packages("rcompanion", dependencies=TRUE)
+library('agricolae');library('ggpubr');library('bindrcpp');library('vegan');library('ggpubr');library('car');library('AER');library('MASS');library('mgcv');library('lme4');library('viridis');library('dplyr');library('ggplot2');library('tidyr');library('sciplot');library('rcompanion')
+if (!requireNamespace("devtools", quietly = TRUE))
+  install.packages("devtools")
+devtools::install_github("calligross/ggthemeassist")
+devtools::install_github("cardiomoon/ggplotAssist")
+setwd("/Users/aleks/Desktop/correct csv files/graph images")
+cols<-c('Pollinator'='#a1dab4',"Parasitoid"='#2c7fb8',"Predator"='#ffffcc',"Herbivore"='#54278f')
+# tab_model(abun1,show.est=TRUE,show.ci = FALSE)--> how to use SJC plot
+#print(abun1, correlation=TRUE)
+##to do - go to land cover analysis and do corr.test for table in these 
+{
+broa<-read.csv('/Users/aleks/Desktop/correct csv files/allinsects.2018.1.csv')%>%filter(Lot!='Warr',Lot!='Mitch',Lot!='VanK',Lot!='Volg',Lot!='Caugh',Lot!='Caugh2',Lot!='Stew',Lot!="Mich",Lot!="Gilv",Lot!="Gilv2")
+broa$FXN[broa$Functional.group=='anthophilous'] <- "Anthophilious" 
+broa$FXN[broa$Functional.group=='decomposer'] <- "Decomposer" 
+broa$FXN[broa$Functional.group=='kleptoparasite'] <- "Kleptoparasite" 
+broa$FXN[broa$Functional.group=='aquatic'] <- "Aquatic" 
+broa$FXN[broa$Functional.group=='uncommon'] <- "Uncommon" 
+broa$FXN[broa$Functional.group=='herbivore'] <- "Herbivore" 
+broa$FXN[broa$Functional.group=='pest'] <- "Herbivore" 
+broa$FXN[broa$Functional.group=='parasitoid'] <- "Parasitoid" 
+broa$FXN[broa$Functional.group=='pollinator'] <- "Pollinator" 
+broa$FXN[broa$Functional.group=='predator'] <- "Predator"
+broa$Lot[broa$Lot=='Vank'] <- "VanK"
+broa$Lot[broa$Lot=='Gilv2'] <- "Gilv"
+weather<-read.csv('/Users/aleks/Desktop/correct csv files/alusclimate.csv')%>%filter(Lot!="Gilv2")
+broad<-merge(broa,weather,by=c("Lot","cover"))
+
+
+}
+#write.csv(broad,file="broadfamilies.csv")
+broad$FXN<-factor(broad$FXN,levels=c('Anthophilious','Decomposer','Kleptoparasite','Aquatic','Uncommon','Herbivore','Parasitoid','Pollinator','Predator'))
+
+##core anaylsis dataframe 
+all<-read.csv('/Users/aleks/Desktop/correct csv files/graph images/dataframe.csv')%>%filter(quadrant!="NA")
+bug<-read.csv('/Users/aleks/Desktop/correct csv files/graph images/dataframe.csv')%>%filter(cerealcrop=="1")%>%filter(cover!="Wood")
+str(bug)
+all$Lot[all$Lot=='Gilv2'] <- "Gilv"
+regional<-broad%>%group_by(Lot,cover,FXN)%>%summarise(Abun=sum(Abundance))%>%spread(FXN,Abun)#,farm_abun=mean(totalfarm_abun),farm_rich=mean(totalfarm_rich))
+{
+  ##julian data beta diversity
+  tiff(filename="nmds beneficials.tiff",width=130,height=150,units='mm',res=1000)
+  gamma<-broad%>%filter(Lot!='Warr',Lot!='Mitch',Lot!='VanK',Lot!='Volg',Lot!='Caugh',Lot!='Caugh2',Lot!='Stew',Lot!="Mich",Lot!="Gilv",Lot!="Gilv2")%>%
+    group_by(Lot,cover,Iso.D,Order,Family,Scientific.name,Julian.Day.y)%>% 
+    summarise(Abundance=sum(Abundance,na.rm=T)) %>%
+    transform(GenFamOrdFxn=paste(Order,Family,Scientific.name,sep=".")) %>% 
+    dplyr::select(-Order,-Scientific.name,-Family) %>% 
+    spread(GenFamOrdFxn,Abundance)
+ str(gamma)
+   names(gamma)
+  spp.comp<-gamma[,c(7:298)]%>%mutate_all(funs(replace(., is.na(.), 0)))
+  env.comp<-gamma[,c(1:4)]
+  spp.comp.abs<-decostand(spp.comp,autotransform=F,method = "total")
+  apply(spp.comp.abs, 1, sum)#total percent cover per plot
+  adonis(spp.comp.abs~cover+Lot+Julian.Day.y,data=env.comp,perm=999)
+  vare.mds<-metaMDS(spp.comp,trace=T,weakties=TRUE,k=3,distance="bray")
+  vare.mds
+  ef<-envfit(vare.mds,env.comp,permu=999,na.rm=T)
+  stems<-colSums(spp.comp)
+  shnam<-make.cepnames(names(spp.comp))
+  plot(vare.mds,display='sp')
+  sel<-orditorp(vare.mds,pcol='gray',pch="+",col="grey")
+  colvector<-c('darkorange','deepskyblue','darkgreen')
+  with(env.comp,points(vare.mds,display='sites',pch=21,bg=colvector[as.factor(cover)],cex=0.8))
+  with(env.comp,ordiellipse(vare.mds,cover,kind='se',conf=0.95,label=T))
+  dev.off()
+  ##ABUNDANCE
+##sampling.method doesnt matter
+  ##is sampling method sig diff--no so able to group them 
+    farm_family<-group_by(broad,Lot,cover,Sampling.method,FXN)%>%subset(FXN!=""&FXN!='#NA')%>%summarise(Abundance=sum(Abundance,na.rm=T))
+    family_1<-lmer(Abundance~Sampling.method*cover*FXN+(1|Lot), data=farm_family)
+    Anova(family_1,type=2)
+    farm_method<-group_by(farm_family,cover,Sampling.method,FXN)%>%summarise(Mean=mean(Abundance,na.rm=T),sd=sd(Abundance),N=n(),se=sd/sqrt(N))
+    tiff(filename="sm.tiff",width=160,height=100,units='mm',res=1000)
+    ggplot(farm_method,aes(x=FXN,y=Mean,fill=Sampling.method))+geom_bar(stat='identity',position='dodge')+geom_errorbar(aes(ymin=Mean-se,ymax=Mean+se),width=.4,position=position_dodge(width=.9))+coord_flip()+facet_wrap(~cover)+ylab("Mean abundance")+xlab("Functional group")
+    dev.off()
+  ##is there difference between functional group and height? No so combine them 
+    farm<-group_by(broad,Lot,cover,height,FXN)%>%subset(Abundance>=1&FXN!=""&FXN!='#NA')%>%filter(Sampling.method!="Sweepnet")%>%summarise(Abundance=sum(Abundance,na.rm=T))
+    farm1<-group_by(farm,cover,height,FXN)%>%summarise(Mean=mean(Abundance,na.rm=T),sd=sd(Abundance),N=n(),se=sd/sqrt(N))
+    mheight<-lmer(Abundance~height*cover*FXN+(1|Lot),data=farm)
+    Anova(mheight,type=2)
+    ##this is with SE bars
+    tiff(filename="height.tiff",width=160,height=100,units='mm',res=1000)
+    ggplot(farm1,aes(x=FXN,y=Mean,fill=height))+geom_bar(stat='summary',position='dodge')+geom_errorbar(aes(ymin=Mean-se,ymax=Mean+se),width=.6,position=position_dodge(width=.9))+coord_flip()+facet_wrap(~cover)+ylab("Mean abundance")+xlab("Functional group")
+    + theme(panel.background = element_rect(fill = "gray95"))  
+    dev.off()
+
+rich.1<-broad%>%filter(!is.na(Order))%>%filter(Lot!='Warr',Lot!='Mitch',Lot!='VanK',Lot!='Volg',Lot!='Caugh',Lot!='Caugh2',Lot!='Stew',Lot!="Mich",Lot!="Gilv")
+rich.2<-rich.1%>% group_by(cover,Order,Scientific.name,Family) %>% summarise(Abundance=sum(Abundance,na.rm=T)) %>%transform(GenFamOrdFxn=paste(Order,Family,Scientific.name,sep=".")) %>% dplyr::select(-Order,-Scientific.name,-Family) %>% spread(GenFamOrdFxn,Abundance)%>%mutate_all(funs(replace(., is.na(.), 0)))
+rich.3<-t(rich.2)
+names(rich.2)
+library("rareNMtests")
+
+
+summary1<-rich.2%>% group_by(cover)%>%summarise(Rich=sum(Richness))
+rich_method<-lmer(Rich~Sampling.method*cover*FXN+(1|Lot), data=summary1)
+Anova(rich_method,type=2)
+
+}##preliminary analysis on smapling mehtod and height for abundance and richness
+
+##cover graph= 13 farms, crop,prairie, wood ABUNDANCE
+{
+  all2<-merge(all,weather,by=c("Lot","cover"))
+  core<-all2%>%filter(Lot!='Warr',Lot!='Mitch',Lot!='VanK',Lot!='Volg',Lot!='Caugh',Lot!='Caugh2',Lot!='Stew',Lot!="Mich",Lot!="Gilv",Lot!="Gilv2")
+  str(core)
+  coreweather<-weather%>%group_by(Lot,cover)%>%summarise(tmin=sum(tmin))
+  range(coreweather$tmin)
+  coreweather1<-coreweather%>%group_by(cover)%>%summarise(Tmin=mean(tmin),N=n(),SE=(sd(tmin,na.rm=T)/sqrt(N)))
+  coverdate<-core%>%group_by(Lot,cover,Julian.Day)%>%summarise(Abun=sum(totalabun),Rich=sum(totalrich),Herbivore_R=mean(Herbivore_R),Parasitoid_R=mean(Parasitoid_R),Predator_R=mean(Predator_R),Pollinator_R=mean(Pollinator_R),Herbivore=mean(Herbivore),Parasitoid=mean(Parasitoid),Predator=mean(Predator),Pollinator=mean(Pollinator))
+  Anova(lmer(Rich~Julian.Day+(1|Lot),data=coverdate))
+  Anova(lmer(Abun~Julian.Day+(1|Lot),data=coverdate))
+  Anova(lmer(Herbivore~cover+Julian.Day+(1|Lot),data=coverdate))
+  Anova(lmer(Predator~Julian.Day+(1|Lot),data=coverdate))
+  Anova(lmer(Parasitoid~Julian.Day+(1|Lot),data=coverdate))
+  Anova(lmer(Pollinator~Julian.Day+(1|Lot),data=coverdate))
+  Anova(lmer(Herbivore_R~Julian.Day+(1|Lot),data=coverdate))
+  Anova(lmer(Predator_R~Julian.Day+(1|Lot),data=coverdate))
+  Anova(lmer(Parasitoid_R~Julian.Day+(1|Lot),data=coverdate))
+  Anova(lmer(Pollinator_R~Julian.Day+(1|Lot),data=coverdate))
+
+ ##take out FXN from line 39 and 40 for this grpah and anova
+ tiff(filename="totalabuncover.tiff",width=140,height=100,units='mm',res=1000)
+ g<-ggplot(abun,aes(x=cover,y=Mean,ymin=Mean+SE,ymax=Mean-SE,fill=cover))+geom_bar(stat="identity",position="dodge", colour="black")+geom_errorbar(position=position_dodge(0.9),width=0.5,colour="black",(col='black')+theme(legend.position='none'))
+ g+labs(x = "Cover type",y="Mean Abundance")+theme_bw()+
+   theme(legend.position="none")+
+   expand_limits(y = 700)+
+   geom_text(x=2, y=650, label= "***", size=7) + 
+   geom_text(x=1, y=270, label= "a") + 
+   geom_text(x=2, y=350, label= "a") + 
+   geom_text(x=3, y=580, label= "b")+
+   theme(axis.line=element_line(colour="black"),panel.grid.major=element_blank(), panel.grid.minor=element_blank(),panel.border=element_blank(),panel.background=element_blank())+ scale_fill_manual(values=c('forestgreen',"sienna4",'yellow2'))+ 
+   theme(axis.title = element_text(size = 12), 
+         axis.text.x = element_text(size = 10, 
+                                    colour = "black"), axis.text.y = element_text(size = 12, 
+                                                                                  colour = "black"), plot.title = element_text(size = 10), 
+         legend.text = element_text(size = 12), 
+         legend.title = element_text(size = 13))  
+ dev.off()
+
+ ##for functional group 
+ blahzero<-broad %>%group_by(Lot,cover,quadrant,FXN,Iso.D) %>% summarise(N=n()) %>%  transform(Whatev='okay')
+ abun<-broad %>%
+   group_by(Lot,cover,quadrant,FXN,Iso.D)%>% 
+   summarise(Abundance=sum(Abundance,na.rm=T)) 
+ 
+ realabun<-abun  %>% 
+   merge(blahzero,all.y=T,all.x=T) %>% 
+   transform(A=ifelse(!is.na(Abundance),Abundance,0))
+ head(realabun) 
+ summary<-realabun%>%group_by(Lot,quadrant,cover,FXN)%>%summarise(Sum=sum(A))%>%na.omit()%>%filter(FXN=="Herbivore"|FXN=="Predator"|FXN=="Parasitoid"|FXN=="Pollinator")
+ summary1<-summary%>%group_by(cover,FXN)%>%summarise(Mean=mean(Sum),N=n(),SE=(sd(Sum,na.rm=T)/sqrt(N)))
+ tiff(filename="fxnabun.tiff",width=220,height=100,units='mm',res=1000)
+ 
+ b <-ggplot(summary1,aes(x=cover,y=Mean,ymin=Mean+SE,ymax=Mean-SE,fill=cover))+geom_bar(stat="identity",position="dodge")+geom_errorbar(position=position_dodge(0.9),width=0.5,colour="black")+scale_fill_manual(values=c('forestgreen','yellow2','sienna4'))+facet_wrap(~FXN,nrow=1)
+ b+labs(x = "Cover type",y="Mean Abundance")+theme_bw()+ theme(legend.position="none")+
+   theme(axis.line=element_line(colour="black"),panel.grid.major=element_blank(), panel.grid.minor=element_blank(),panel.border=element_blank(),panel.background=element_blank())+expand_limits(y=c(0,20))
+ 
+ ####real fxn by cove grpah for allys thesis 
+ b <-ggplot(subset(summary1,cover!="Wood"),aes(x=FXN,y=Mean,ymin=Mean+SE,ymax=Mean-SE,fill=FXN))+geom_bar(stat="identity",position="dodge",colour="black")+geom_errorbar(position=position_dodge(0.9),width=0.5,colour="black")+facet_wrap(~cover)
+ b+labs(x = "Functional group",y="Mean Abundance")+theme_bw()+ scale_fill_manual(values=c('#54278f','#2c7fb8','#ffffcc','#a1dab4'))+theme(axis.line=element_line(colour="black"),panel.grid.major=element_blank(), panel.grid.minor=element_blank(),panel.background=element_blank())
+ dev.off()
+ ##percantage of beneficials caught
+ blahzero<-broad  %>%group_by(Lot,cover,FXN) %>%  summarise(Abundance=sum(Abundance,na.rm=T))
+ summary<-blahzero%>%group_by(FXN)%>%summarise(Sum=mean(Abundance),N=n(),SE=(sd(Abundance,na.rm=T)/sqrt(N)))%>% drop_na()
+ summary1<-summary%>%filter(FXN=="Predator"|FXN=="Parasitoid"|FXN=="Pollinator")
+ summary1 = mutate(summary1, count_pct = Sum / sum(Sum)) 
+  #tiff(filename="benepct.tiff",width=140,height=100,units='mm',res=1000)
+ ggplot(summary1, aes(x = FXN, y=count_pct,fill=FXN)) +geom_bar(stat="summary",position="dodge", colour="black")+
+   geom_text(x=1, y= 0.25, label= "16.12 %") + 
+   geom_text(x=2, y=0.33, label= "20.92 %") + 
+   geom_text(x=3, y=0.56, label= "40.90 %")+
+   expand_limits(y = 0.60)+
+   theme(legend.position="none") +ylab("Percentage")+xlab("")+   theme(axis.line=element_line(colour="black"),panel.grid.major=element_blank(), panel.grid.minor=element_blank(),panel.border=element_blank(),panel.background=element_blank()) +scale_y_continuous(labels= scales::percent)
+  dev.off()
+  
+  }#ABUNDANCE
+{
+  broad2<-broad%>%group_by(Lot,cover,FXN)%>%summarise(Sum=sum(Abundance))%>% drop_na()
+  summary<-broad2%>%group_by(cover,FXN)%>%summarise(Mean=mean(Sum))%>%spread(cover,Mean)
+  
+   
+  ##pie graph of richness
+  tiff(filename="rpie.tiff",width=170,height=120,units='mm',res=1000)
+  
+   x<-c(730,93,25,14,17,1368,424,456,940)
+  labels<-c("Anthophilious","Decomposer","Kleptopparasite","Aquatic","Uncommon","Herbivore","Parasitoid","Pollinator","Predator")
+  piepercent<-round(100*x/sum(x), 1)
+  pie(x, labels = piepercent, main = "Functional group Richness",col = rainbow(length(x)))
+  legend("topright", c("Anthophilious","Decomposer","Kleptopparasite","Aquatic","Uncommon","Herbivore","Parasitoid","Pollinator","Predator"), cex = 0.7,
+         fill = rainbow(length(x)))
+  dev.off()
+  x<-c(50.76,2.23,0.076,0.23,0.23,98.61,5.61,7.23,11.07)#crop
+  x<-c(36.61,4.92,0.615,0.384,0.615,321.15,13.23,37.07,54.92)#prairie
+  tiff(filename="prairiepieabun.tiff",width=170,height=120,units='mm',res=1000)
+  labels<-c("Anthophilious","Decomposer","Kleptopparasite","Aquatic","Uncommon","Herbivore","Parasitoid","Pollinator","Predator")
+  piepercent<-round(100*x/sum(x), 2)
+  pie(x, labels = piepercent,main = "Abundance in Prairie ",col = rainbow(length(x)))
+  legend("topright", c("Anthophilious","Decomposer","Kleptopparasite","Aquatic","Uncommon","Herbivore","Parasitoid","Pollinator","Predator"), cex = 0.7,
+         fill = rainbow(length(x)))
+  dev.off()
+  ##pie graph of abundance 
+  t<-broad%>% group_by(FXN)%>%summarise(Abundance=sum(Abundance,na.rm=T))
+  tiff(filename="fpie.tiff",width=170,height=120,units='mm',res=1000)
+  x<-c(3927,498,52,24,39,16014,1285,1847,3362,32)
+  labels<-c("Anthophilious","Decomposer","Kleptopparasite","Aquatic","Uncommon","Herbivore","Parasitoid","Pollinator","Predator")
+  piepercent<-round(100*x/sum(x), 1)
+  pie(x, labels = piepercent, main = "Functional group Abundance",col = rainbow(length(x)))
+  legend("topright", c("Anthophilious","Decomposer","Kleptopparasite","Aquatic","Uncommon","Herbivore","Parasitoid","Pollinator","Predator"), cex = 0.7,
+         fill = rainbow(length(x)))
+  dev.off()
+}#PIECHARTS
+{
+  core<-all2%>%filter(Lot!='Warr',Lot!='Mitch',Lot!='VanK',Lot!='Volg',Lot!='Caugh',Lot!='Caugh2',Lot!='Stew',Lot!="Mich",Lot!="Gilv",Lot!="Gilv2")
+  str(core)
+    #lm with hsd test after significnce is found 
+an2  <-lm(Predator_R~cover,data=core)
+  Anova(an2,type=2)
+  out <- HSD.test(an2,"cover")
+  out
+  
+  coverich<-core%>%group_by(Lot,cover)%>%summarise(Abun=sum(totalrich))
+  coverich$cover<-factor(coverich$cover,levels=c('Crop','Wood','Prairie'))
+  
+  rich<-coverich%>%group_by(cover)%>%summarise(Mean=mean(Abun),N=n(),SE=(sd(Abun,na.rm=T)/sqrt(N)))
+  
+  Anova(lmer(Abun~cover+(1|Lot),data=coverich))
+  an2<-aov(Abun~cover, data=coverich)
+  summary(an2,type=2)
+   out <- HSD.test(an2,"cover", group=TRUE,console=TRUE)
+   rich.1<-broad%>%filter(!is.na(Order))%>%filter(Lot!='Warr',Lot!='Mitch',Lot!='VanK',Lot!='Volg',Lot!='Caugh',Lot!='Caugh2',Lot!='Stew',Lot!="Mich",Lot!="Gilv")
+   rich.2<-rich.1%>% group_by(Lot,FXN) %>% summarise(Rich=n()) %>%na.omit()%>%spread(FXN,Rich)
+   rich.3<-rich.2%>%group_by(cover,FXN) %>% summarise(Mean=mean(Rich),N=n(),SE=(sd(Rich,na.rm=T)/sqrt(N)))
+   
+   ##for functional group 
+   
+   tiff(filename="fxnrich.tiff",width=220,height=100,units='mm',res=1000)
+   b <-ggplot(subset(rich.3,cover!="Wood"),aes(x=FXN,y=Mean,ymin=Mean+SE,ymax=Mean-SE,fill=FXN))+geom_bar(stat="identity",position="dodge",colour="black")+geom_errorbar(position=position_dodge(0.9),width=0.5,colour="black")+facet_wrap(~cover)
+   b+labs(x = "Functional group",y="Mean Abundance")+theme_bw()+ scale_fill_manual(values=c('#54278f','#2c7fb8','#ffffcc','#a1dab4'))+theme(axis.line=element_line(colour="black"),panel.grid.major=element_blank(), panel.grid.minor=element_blank(),panel.background=element_blank())
+   dev.off()
+   
+   names(rich.2)
+   rich.2$Richness<- rowSums(!is.na(rich.2[,c(5:273)])) #note - these columns might change if fxn group/order etc changes; 
+   summary1<-rich.1%>% group_by(cover,Family,FXN)%>% summarise(N=n())%>%spread(FXN,N)%>%mutate_all(funs(replace(., is.na(.), 0)))
+   s.1<-summary1%>% group_by(cover,FXN)%>%summarise(Mean=mean(Sum),N=n(),SE=(sd(Sum,na.rm=T)/sqrt(N)))   
+   
+  ##take out FXN from line 90-94 for this grpah and anova
+  tiff(filename="totalrichcover.tiff",width=140,height=100,units='mm',res=1000)
+  g<-ggplot(rich,aes(x=cover,y=Mean,ymin=Mean+SE,ymax=Mean-SE,fill=cover))+geom_bar(stat="identity",position="dodge", colour="black")+geom_errorbar(position=position_dodge(0.9),width=0.5,colour="black",(col='black')+theme(legend.position='none'))
+  g+labs(x = "Cover type",y="Mean Richness")+theme_bw()+
+    theme(legend.position="none")+
+    expand_limits(y = 100)+
+    geom_text(x=2, y=100, label= "***", size=7) + 
+    geom_text(x=1, y=50, label= "a") + 
+    geom_text(x=2, y=80, label= "b") + 
+    geom_text(x=3, y=95, label= "b")+
+    theme(axis.line=element_line(colour="black"),panel.grid.major=element_blank(), panel.grid.minor=element_blank(),panel.border=element_blank(),panel.background=element_blank())+ scale_fill_manual(values=c('forestgreen','sienna4','yellow2'))+ 
+    theme(axis.title = element_text(size = 12), 
+          axis.text.x = element_text(size = 10, 
+                                     colour = "black"), axis.text.y = element_text(size = 12, 
+                                                                                   colour = "black"), plot.title = element_text(size = 10), 
+          legend.text = element_text(size = 12), 
+          legend.title = element_text(size = 13))  
+  dev.off()
+  
+  tiff(filename="FXNrichcover.tiff",width=160,height=100,units='mm',res=1000)
+  a<-ggplot(s.1,aes(x=cover,y=Mean,ymin=Mean+SE,ymax=Mean-SE,fill=cover))+geom_bar(stat="identity",position="dodge")+geom_errorbar(position=position_dodge(0.9),width=0.5,colour="black")+scale_fill_manual(values=c('forestgreen','yellow2','sienna4'))+facet_wrap(~FXN,nrow=1)
+  a+labs(x = "Cover type",y="Mean richness")+theme_bw()+ 
+    theme(axis.line=element_line(colour="black"),panel.grid.major=element_blank(), panel.grid.minor=element_blank(),panel.border=element_blank(),panel.background=element_blank())+expand_limits(y=c(0,20))
+  
+  dev.off() 
+  Anova(lmer(Richness~cover*FXN+(1|Lot),data=summary1))
+  an2<-lm(Richness~cover,data=summary1)
+  Anova(an2,type=2)
+  out <- HSD.test(an2,"cover")
+  out
+}#RICHNESS
+{
+  ##abundance
+  coverp<-all%>%group_by(Lot,p)%>%summarise(abun=sum(totalrich))%>%filter(p!="")
+  cover<-coverp%>%group_by(p)%>%summarise(Mean=mean(abun),N=n(),SE=(sd(abun,na.rm=T)/sqrt(N)))
+  tiff(filename="totalabunp.tiff",width=170,height=100,units='mm',res=1000)
+  ggplot(cover,aes(x=p,y=Mean,fill=p))+geom_bar(stat="identity",position="dodge", colour="black")+geom_errorbar(aes(ymin=Mean+SE,ymax=Mean-SE),position=position_dodge(0.9),width=0.5)+ylab("Mean richness")+xlab("Cover type")+theme(panel.grid.major = element_line(linetype = "blank"), 
+                                                                                                                                                                                                                                                                                          panel.grid.minor = element_line(linetype = "blank"), 
+                                                                                                                                                                                                                                                                                          panel.background = element_rect(fill = "gray94"))+scale_fill_manual(values=c('#1f78b4',"#b2df8a"))+ guides(fill=guide_legend(title=""))
+  dev.off()
+  
+  coverp<-all%>%group_by(Lot,p)%>%summarise(Herbivore=sum(Herbivore),Predator=sum(Predator),Parasitoid=sum(Parasitoid),Pollinator=sum(Pollinator))%>%gather(Metric, Value, -Lot,Herbivore,Predator,Parasitoid,Pollinator,-p)%>%filter(p!="")
+  cover<-coverp%>%group_by(p,Metric)%>%summarise(Mean=mean(Value),N=n(),SE=(sd(Value,na.rm=T)/sqrt(N)))
+  tiff(filename="totalabunp.tiff",width=170,height=100,units='mm',res=1000)
+   ggplot(cover,aes(x=Metric,y=Mean,fill=Metric))+geom_bar(stat="identity",position="dodge", colour="black")+geom_errorbar(aes(ymin=Mean+SE,ymax=Mean-SE),position=position_dodge(0.9),width=0.5)+ylab("Mean abundance")+xlab("Cover type")+facet_wrap(~p)+expand_limits(y=c(0,150))+theme(panel.grid.major = element_line(linetype = "blank"), 
+    panel.grid.minor = element_line(linetype = "blank"), 
+    panel.background = element_rect(fill = "gray94"))+scale_fill_viridis(discrete=TRUE,option="viridis")
+   dev.off()
+  #richness
+   coverp<-all%>%group_by(Lot,p)%>%summarise(Herbivore=sum(Herbivore_R),Predator=sum(Predator_R),Parasitoid=sum(Parasitoid_R),Pollinator=sum(Pollinator_R))%>%gather(Metric, Value, -Lot,Herbivore,Predator,Parasitoid,Pollinator,-p)%>%filter(p!="")
+   cover<-coverp%>%group_by(p,Metric)%>%summarise(Mean=mean(Value),N=n(),SE=(sd(Value,na.rm=T)/sqrt(N)))
+   tiff(filename="totalabunr.tiff",width=170,height=100,units='mm',res=1000)
+   ggplot(cover,aes(x=Metric,y=Mean,fill=Metric))+geom_bar(stat="identity",position="dodge", colour="black")+geom_errorbar(aes(ymin=Mean+SE,ymax=Mean-SE),position=position_dodge(0.9),width=0.5)+ylab("Mean richness")+facet_wrap(~p)+expand_limits(y=c(0,80))+ theme(panel.grid.major = element_line(linetype = "blank"), 
+                                                                                                                                                                                                                                                                  panel.grid.minor = element_line(linetype = "blank"), 
+                                                                                                                                                                                                                                                                  panel.background = element_rect(fill = "gray94"))++scale_fill_viridis(discrete=TRUE,option="viridis")
+   dev.off()
+  }##mechaisms 1, prairie presence or absence 
+{
+  coverabun<-core%>%filter(cover.type!="wood"&cover.type!="prairie")%>%group_by(Lot,quadrant,cover.type)%>%summarise(Abun=sum(totalabun))
+  abun<-coverabun%>%group_by(cover.type)%>%summarise(Mean=mean(Abun),N=n(),SE=(sd(Abun,na.rm=T)/sqrt(N)))
+  ##take out FXN from line 39 and 40 for this grpah and anova
+  tiff(filename="totalabuncover.tiff",width=140,height=100,units='mm',res=1000)
+  Anova(lmer(Abun~cover.type+(1|Lot),data=coverabun))
+  g<-ggplot(abun,aes(x=cover.type,y=Mean,ymin=Mean+SE,ymax=Mean-SE,fill=cover.type))+geom_bar(stat="identity",position="dodge", colour="black")+geom_errorbar(position=position_dodge(0.9),width=0.5,colour="black",(col='black')+theme(legend.position='none'))
+  g+labs(x = "Cover type",y="Mean Abundance")+theme_bw()+
+    theme(legend.position="none")+
+    theme(axis.line=element_line(colour="black"),panel.grid.major=element_blank(), panel.grid.minor=element_blank(),panel.border=element_blank(),panel.background=element_blank())+ 
+    theme(axis.title = element_text(size = 12), 
+          axis.text.x = element_text(size = 10, 
+                                     colour = "black"), axis.text.y = element_text(size = 12, 
+                                                                                   colour = "black"), plot.title = element_text(size = 10), 
+          legend.text = element_text(size = 12), 
+          legend.title = element_text(size = 13))  
+  dev.off()
+}
+
+##REGIONAL POOL
+{
+  AGFAM<-read.csv('/Users/aleks/Desktop/correct csv files/agfam.csv')%>%group_by(Lot,cover,Family) %>% summarise(N=n())%>%spread(Family,N)%>%mutate_all(funs(replace(., is.na(.), 0)))
+  AGFAM$total<-rowSums(AGFAM[,c(4:186)])
+  agfam<-AGFAM%>%group_by(cover)%>%summarise(Mean=mean(total),N=n(),SE=(sd(total,na.rm=T)/sqrt(N)))
+  INAT<-read.csv('/Users/aleks/Desktop/correct csv files/inaturalist families.csv')%>%filter(Category=="Semi-natural areas"|Category=="Agricultural areas")
+  str(INAT)
+  t.test(Number.of.arthropod.families~Category,data=INAT)
+  
+  
+  
+  nat<-ggplot(INAT,aes(x=Category, y=Number.of.arthropod.families,ymin=Number.of.arthropod.families+SE,ymax=Number.of.arthropod.families-SE,fill=Category))+geom_bar(stat="identity",,position="dodge", colour="black")+geom_errorbar(position=position_dodge(0.9),width=0.5,colour="black",(col='black'))
+  nat+labs(y="Mean Number of Families")+theme_bw()+
+    theme(legend.position="none")+
+    theme(axis.line=element_line(colour="black"),panel.grid.major=element_blank(), panel.grid.minor=element_blank(),panel.border=element_blank(),panel.background=element_blank())+ 
+    theme(axis.title = element_text(size = 12), 
+          axis.text.x = element_text(size = 10, 
+                                     colour = "black"), axis.text.y = element_text(size = 12, 
+                                                                                   colour = "black"), plot.title = element_text(size = 10), 
+          legend.text = element_text(size = 12), 
+          legend.title = element_text(size = 13))  
+  ag<-ggplot(agfam,aes(x=cover,y=Mean,ymin=Mean+SE,ymax=Mean-SE,fill=cover))+geom_bar(stat="identity",position="dodge", colour="black")+geom_errorbar(position=position_dodge(0.9),width=0.5,colour="black",(col='black')+theme(legend.position='none'))
+  ag+labs(x = "Cover type",y="Mean Number of Families")+theme_bw()+
+    theme(legend.position="none")+
+    theme(axis.line=element_line(colour="black"),panel.grid.major=element_blank(), panel.grid.minor=element_blank(),panel.border=element_blank(),panel.background=element_blank())+ scale_fill_manual(values=c('forestgreen','yellow2',"sienna4"))+ 
+    theme(axis.title = element_text(size = 12), 
+          axis.text.x = element_text(size = 10, 
+                                     colour = "black"), axis.text.y = element_text(size = 12, 
+                                                                                   colour = "black"), plot.title = element_text(size = 10), 
+          legend.text = element_text(size = 12), 
+          legend.title = element_text(size = 13))  
+  ggarrange(nat,ag,nrow=2)
+  dev.off()
+}##this is inat data but made grpah in excel to put isolated SE 
+{
+  fxn<-read.csv('/Users/aleks/Desktop/correct csv files/fxn.csv')%>%group_by(Land,FXN1) %>% summarise(N=n())%>%spread(FXN1,N)%>%mutate_all(funs(replace(., is.na(.), 0)))
+  str(fxn)
+  data_long <- gather(fxn, FXN,Abun,anthophilous,herbivore,predator,parasitoid,pollinator,aquatic,uncommon,kleptoparasite,decomposer,other, factor_key=TRUE)
+  
+  
+  data_long%>%
+    group_by(Land, FXN) %>%
+    summarise(count_fxn = n()) %>%
+    group_by(Land) %>%
+    mutate(count_land = sum(count_fxn)) %>%
+    mutate(percent = count_fxn/ count_land * 100) %>%
+    ggplot(aes(x = Land,
+               y = count_fxn,
+               group = FXN)) +
+    geom_bar(aes(fill = FXN), 
+             stat = "identity") +
+    geom_text(aes(label = sprintf("%0.1f%%", percent)),
+              position = position_stack(vjust = 0.5))
+  
+}## porportion fxn --these grpahs finished in excel
+{
+  #change FXN in filter to tests for certain target groups
+  bug2<-broad%>%group_by(Lot,LatN.x,LatW.x)%>%summarise(Abun=sum(Abundance))
+  Lot.dists <- dist(cbind(bug2$LatN.x, bug2$LatW.x))
+  abun.dists <- dist(bug2$Abun)
+  mantel(Lot.dists, abun.dists)
+  
+  
+  bug2<-broad%>%filter(quadrant=="0")%>%filter(Lot!='Warr',Lot!='Mitch',Lot!='VanK',Lot!='Volg',Lot!='Caugh',Lot!='Caugh2',Lot!='Stew',Lot!="Mich",Lot!="Gilv")%>%group_by(Lot,cover,quadrant,LatN.x,LatW.x)%>%summarise(Abun=sum(Abundance))
+Lot.dists <- dist(cbind(bug2$LatN.x, bug2$LatW.x))
+abun.dists <- dist(bug2$Abun)
+library("ape")
+mantel(Lot.dists, abun.dists)
+
+bug3<-broad%>%filter(!is.na(Order))%>%filter(FXN=="Pollinator")%>%filter(Lot!='Warr',Lot!='Mitch',Lot!='VanK',Lot!='Volg',Lot!='Caugh',Lot!='Caugh2',Lot!='Stew',Lot!="Mich",Lot!="Gilv")%>%filter(quadrant=="0")
+rich.2<-bug3%>% group_by(Lot,cover,quadrant,LatN.x,LatW.x,Order,Scientific.name,Family) %>% summarise(Abundance=sum(Abundance,na.rm=T)) %>%transform(GenFamOrdFxn=paste(Order,Family,Scientific.name,sep=".")) %>% dplyr::select(-Order,-Scientific.name,-Family) %>% spread(GenFamOrdFxn,Abundance)
+names(rich.2)
+rich.2$Richness<- rowSums(!is.na(rich.2[,c(6:19)]))
+
+bug3<-rich.2%>%group_by(Lot,cover,quadrant,LatN.x,LatW.x)%>%summarise(Richness=sum(Richness))
+Lot.dists <- dist(cbind(bug3$LatN.x, bug3$LatW.x))
+rich.dists <- dist(bug3$Richness)
+mantel(Lot.dists, rich.dists)
+}##perform a mantel test to see spaital autocorrelation
+
+{
+  
+  land<-read.csv('/Users/aleks/Desktop/correct csv files/graph images/dataframe.csv',header=T)%>%filter(Lot!='Warr',Lot!='Mitch',Lot!='VanK',Lot!='Volg',Lot!='Caugh',Lot!='Caugh2',Lot!='Stew',Lot!="Mich",Lot!="Gilv",Lot!="Gilv2")
+  land2<-land%>%transform(ag500=crop_500m+otherag_500m)%>%transform(ag1000=crop_1000m+otherag_1000m)%>%transform(ag1500=crop_1500m+otherag_1500m)%>%transform(ag2000=crop_2000m+otherag_2000m)%>%
+    transform(nat500=othernatural_500m+grassland_500m+forest_500m)%>%transform(nat1000=othernatural_1000m+grassland_1000m+forest_1000m)%>%transform(nat1500=othernatural_1500m+grassland_1500m+forest_1500m)%>%transform(nat2000=othernatural_2000m+grassland_2000m+forest_2000m)%>%data.frame()
+  land3<-land2%>%group_by(Lot,ag500,ag1000,ag1500,ag2000,nat500,nat1000,nat1500,nat2000)%>%summarise(totalabun=mean(totalfarm_abun),totalrich=mean(totalfarm_rich),Herbivore=sum(Herbivore),Predator=sum(Predator),Parasitoid=sum(Parasitoid),Pollinator=sum(Pollinator))%>%na.omit()
+  land4<-land3[-c(14),]
+  write.csv(land4,file="land4.csv")
+  land1<-read.csv('/Users/aleks/Desktop/correct csv files/graph images/land1.csv',header=T)
+  
+  #linear mixed models show no significance to land cover at any scale 
+  M1<-lm(Herbivore~ag500+ag1000+ag1500+ag2000,data=land4)
+  summary(M1,type=2)
+  M2<-lm(Predator~ag500+ag1000+ag1500+ag2000,data=land4)
+  Anova(M2,type=2)
+  M3<-lm(Parasitoid~ag500+ag1000+ag1500+ag2000,data=land4)
+  Anova(M3,type=2)
+  M4<-lm(Pollinator~ag500+ag1000+ag1500+ag2000,data=land1)
+  Anova(M4,type=2)
+  tab_model(M1,M2,M3,M4,show.ci=FALSE,show.est=FALSE,show.stat = TRUE)
+  
+  #total abun and ag and nat
+  landcoverabun<-lm(totalabun~ag500+ag1000+ag1500+ag2000+nat500+nat1000+nat1500+nat2000,data=land4)
+  Anova(landcoverabun)
+  #total rich 
+  landcoverrich<-lm(totalrich~ag500+ag1000+ag1500+ag2000+nat500+nat1000+nat1500+nat2000,data=land4)
+  Anova(landcoverrich)
+  
+  
+  ggplot(land4,aes(ag1000))+
+    geom_point(aes(ag1000,totalabun),col='blue')+
+    geom_smooth(aes(ag1000,totalabun),method='lm',col='blue')+
+    ylab('Abundance')+xlab('Agriculture %')
+  
+  str(land2)
+  ##abundanc
+  rcorr(Herbivore,data=land1,type=c("pearson"))
+  pairs(~Herbivore+ag500+ag1000+ag1500+ag2000,data=land4)
+  pairs(~Herbivore+nat500+nat1000+nat1500+nat2000,data=land4)
+  cor.test(Herbivore~ag500+ag1000+ag1500+ag2000,data=land4,method="pearson",exact=FALSE)
+  cor.test(land4$Herbivore,land4$ag2000,method="pearson",exact=FALSE)
+  cor.test(land4$totalabun,land4$nat2000,method="pearson",exact=FALSE)
+  cor.test(land2$totalfarm_abun,land2$otherag_1000m,method="pearson", exact=FALSE)
+  cor.test(land2$totalfarm_abun,land2$grassland_1000m,method="pearson", exact=FALSE)
+  cor.test(land2$totalfarm_abun,land2$forest_1000m,method="pearson", exact=FALSE)
+  cor.test(land2$totalfarm_abun,land2$othernatural_1000m,method="pearson", exact=FALSE)
+  
+  cor.test(land2$totalfarm_rich,land2$crop_1000m,method="pearson",exact=FALSE)
+  cor.test(land2$totalfarm_rich,land2$otherag_1000m,method="pearson", exact=FALSE)
+  cor.test(land2$totalfarm_rich,land2$grassland_1000m,method="pearson", exact=FALSE)
+  cor.test(land2$totalfarm_rich,land2$forest_1000m,method="pearson", exact=FALSE)
+  cor.test(land2$totalfarm_rich,land2$othernatural_1000m,method="pearson", exact=FALSE)
+  
+  ggplot(land2,aes(y=totalfarm_abun,x=ag1000))+geom_point()+geom_smooth(method=lm)
+  
+  
+  ##Total insect abundance 
+  
+  
+}##landscape analysis, correlation coefficents 
+
+###FARM POOL ANALYSES
+{
+  str(broad)
+  gamma<-broad%>%filter(FXN=='Herbivore'|FXN=='Predator'|FXN=="Parasitoid"|FXN=="Pollinator")%>%
+  group_by(Lot,cover,Order,Family,Scientific.name,Julian.Day.y,Iso.D)%>% 
+    summarise(Abundance=sum(Abundance,na.rm=T)) %>%
+    transform(GenFamOrdFxn=paste(Order,Family,Scientific.name,sep=".")) %>% 
+    dplyr::select(-Order,-Scientific.name,-Family) %>% 
+    spread(GenFamOrdFxn,Abundance)
+  gamma1<-merge(gamma,bug)
+  str(gamma1)
+  spp.comp<-gamma1[,c(4:238)]%>%mutate_all(funs(replace(., is.na(.), 0)))
+  env.comp<-gamma1[,c(1:4)]
+  vare.mds<-metaMDS(spp.comp)
+  vare.mds
+  ef<-envfit(vare.mds,env.comp,permu=999,na.rm=T)
+  stems<-colSums(spp.comp)
+  shnam<-make.cepnames(names(spp.comp))
+  plot(vare.mds,display='sp')
+  sel<-orditorp(vare.mds,pcol='gray',pch="+",col="grey")
+  colvector<-c('darkorange','deepskyblue','darkgreen')
+  with(env.comp,points(vare.mds,display='sites',pch=21,bg=colvector[as.factor(cover)],cex=0.8))
+  with(env.comp,ordiellipse(vare.mds,cover,kind='se',conf=0.95,label=T))
+  plot(ef, p.max=0.1, col="blue")
+  dev.off()
+} ###cover presence NMDS crop, wood , prairie dissimilarity distance
+{
+  ##change this blok to C.P instread of C.SN 
+  all<-read.csv('/Users/aleks/Desktop/correct csv files/graph images/dataframe.csv')
+  cp<-all%>%group_by(Lot,P.SN)%>%summarise(totalabun=mean(totalabun),totalrich=mean(totalrich), herb=mean(Herbivore),pred=mean(Predator),poll=mean(Pollinator),par=mean(Parasitoid),herbr=mean(Herbivore_R),predr=mean(Predator_R),pollr=mean(Pollinator_R),parr=mean(Parasitoid_R))%>%filter(Lot!='Warr',Lot!='Mitch',Lot!='VanK',Lot!='Volg',Lot!='Caugh',Lot!='Caugh2',Lot!='Stew',Lot!="Mich",Lot!="Gilv",Lot!="Gilv2")
+  cp_scale <- scale(cp[,c(2:12)])%>%data.frame()
+
+  
+#  landscape<-read.csv('/Users/aleks/Desktop/correct csv files/sweep_stats_finaldamage.csv',header=T)%>%filter(farm!='Warr',farm!='Mitch',farm!='VanK',farm!='Volg',farm!='Caugh',farm!='Caugh2',farm!='Stew',farm!="Mich",farm!="Gilv",farm!="Gilv2")
+#  landscape$C.P<-as.numeric(landscape$C.P)
+#  str(landscape)
+ # land<-landscape%>%group_by(farm,C.P)%>%summarise(herb=mean(pest.abun),pred=mean(pred.abun),poll=mean(poll.abun),par=mean(par.abun),herbr=mean(pest.rich),predr=mean(pred.rich),pollr=mean(poll.rich),parr=mean(par.rich),totalabun=mean(total.abun),totalrich=mean(total.rich))
+  
+  tiff(filename="fxnrich.tiff",width=140,height=100,units='mm',res=1000)
+  
+  #cp$C.SN <- as.numeric(cp$C.SN)
+  cols<-c("total"="black",'Pollinator'='#a1dab4',"Parasitoid"='#2c7fb8',"Predator"='#ffffcc',"Herbivore"='#54278f')
+
+
+  g<-ggplot(cp,aes(x=P.SN))+
+    geom_point(aes(y=totalabun, colour="total"))+
+    geom_smooth(aes(P.SN,totalabun),method='lm',se = FALSE,linetype = "dashed",col='black')+
+    geom_point(aes(y=herb, colour="Herbivore"))+
+    geom_smooth(aes(P.SN,herb),method='lm',se = FALSE,col='#54278f')+
+    geom_point(aes(y=poll, colour="Pollinator"))+
+    geom_smooth(aes(P.SN,poll),method='lm',se = FALSE,col='#a1dab4')+
+    geom_point(aes(y=par, colour="Parasitoid"))+
+    geom_smooth(aes(P.SN,par),method='lm',se = FALSE,col="#2c7fb8")+
+    geom_point(aes(y=pred, colour="Predator"))+
+    geom_smooth(aes(P.SN,pred),method='lm',se = FALSE,col='#ffffcc')
+  g+  ylab('Abundance')+scale_x_continuous(name=" Proportion of Semi-natural Area",breaks=c(0.1, 0.2, 0.3,0.4,0.5,0.6))+  scale_colour_manual(name="Functional groups",values=cols)  + theme(panel.grid.major = element_line(linetype = "blank"), 
+                                                                                                                                                         panel.grid.minor = element_line(linetype = "blank"), 
+                                                                                                                                                         panel.background = element_rect(fill = "gray92"))+ylim(0,75)
+   
+                                                                                                                                                                                                                                                                                                         
+
+  dev.off()
+  r<-ggplot(cp,aes(x=P.SN))+
+    geom_point(aes(y=totalrich, colour="total"))+
+    geom_smooth(aes(P.SN,totalrich),method='lm',se = FALSE,linetype = "dashed",col='black')+
+    geom_point(aes(y=herbr, colour="Herbivore"))+
+    geom_smooth(aes(P.SN,herbr),method='lm',se = FALSE,col='#54278f')+
+    geom_point(aes(y=pollr, colour="Pollinator"))+
+    geom_smooth(aes(P.SN,pollr),method='lm',se = FALSE,col='#a1dab4')+
+    geom_point(aes(y=parr, colour="Parasitoid"))+
+    geom_smooth(aes(P.SN,parr),method='lm',se = FALSE,col="#2c7fb8")+
+    geom_point(aes(y=predr, colour="Predator"))+
+    geom_smooth(aes(P.SN,predr),method='lm',se = FALSE,col='#ffffcc')
+  r+  ylab('Richness') +scale_x_continuous(name=" Proportion of Semi-natural Area",breaks=c(0.1, 0.2, 0.3,0.4,0.5,0.6))+ scale_colour_manual(name="Functional groups",values=cols)  + theme(panel.grid.major = element_line(linetype = "blank"), 
+                                                                                                                                                        panel.grid.minor = element_line(linetype = "blank"), 
+                                                                                                                                                        panel.background = element_rect(fill = "gray92"))
+                                                                                                                                                   
+  dev.off()
+  psize<-all%>%group_by(Lot,Total.cover.size)%>%filter(cover=="Prairie")%>%summarise(totalabun=mean(totalabun),totalrich=mean(totalrich), herb=mean(Herbivore),pred=mean(Predator),poll=mean(Pollinator),par=mean(Parasitoid),herbr=mean(Herbivore_R),predr=mean(Predator_R),pollr=mean(Pollinator_R),parr=mean(Parasitoid_R))%>%filter(Lot!='Warr',Lot!='Mitch',Lot!='VanK',Lot!='Volg',Lot!='Caugh',Lot!='Caugh2',Lot!='Stew',Lot!="Mich",Lot!="Gilv",Lot!="Gilv2")
+  fit1<-lm(herb~Total.cover.size,data=psize)
+  Anova(fit1,type=2)
+  tiff(filename="abunrich.tiff",width=140,height=100,units='mm',res=1000)
+  ########DOES PRAIRIRE SIZE MATTER
+  r<-ggplot(psize,aes(x=Total.cover.size))+
+    geom_point(aes(y=totalrich, colour="total"))+
+    geom_smooth(aes(Total.cover.size,totalrich),method='lm',se = FALSE,linetype = "dashed",col='black')+
+    geom_point(aes(y=herbr, colour="Herbivore"))+
+    geom_smooth(aes(Total.cover.size,herbr),method='lm',se = FALSE,col='#54278f')+
+    geom_point(aes(y=pollr, colour="Pollinator"))+
+    geom_smooth(aes(Total.cover.size,pollr),method='lm',se = FALSE,col='#a1dab4')+
+    geom_point(aes(y=parr, colour="Parasitoid"))+
+    geom_smooth(aes(Total.cover.size,parr),method='lm',se = FALSE,col="#2c7fb8")+
+    geom_point(aes(y=predr, colour="Predator"))+
+    geom_smooth(aes(Total.cover.size,predr),method='lm',se = FALSE,col='#ffffcc')
+  r+  ylab('Richness') +xlab("Size of prairie cover (acres)")+ scale_colour_manual(name="Functional groups",values=cols)  + theme(panel.grid.major = element_line(linetype = "blank"), 
+                                                                                                                                                                                            panel.grid.minor = element_line(linetype = "blank"), 
+                                                                                                                                                                                            panel.background = element_rect(fill = "gray92"))+ylim(0,30)
+  
+  dev.off()
+  b<-ggplot(psize,aes(x=Total.cover.size))+
+    geom_point(aes(y=totalabun, colour="total"))+
+    geom_smooth(aes(Total.cover.size,totalabun),method='lm',se = FALSE,linetype = "dashed",col='black')+
+    geom_point(aes(y=herb, colour="Herbivore"))+
+    geom_smooth(aes(Total.cover.size,herb),method='lm',se = FALSE,col='#54278f')+
+    geom_point(aes(y=poll, colour="Pollinator"))+
+    geom_smooth(aes(Total.cover.size,poll),method='lm',se = FALSE,col='#a1dab4')+
+    geom_point(aes(y=par, colour="Parasitoid"))+
+    geom_smooth(aes(Total.cover.size,par),method='lm',se = FALSE,col="#2c7fb8")+
+    geom_point(aes(y=pred, colour="Predator"))+
+    geom_smooth(aes(Total.cover.size,pred),method='lm',se = FALSE,col='#ffffcc')
+  b+  ylab('Abundance') +xlab("Size of prairie cover (acres)")+ scale_colour_manual(name="Functional groups",values=cols)  + theme(panel.grid.major = element_line(linetype = "blank"), 
+                                                                                                                                  panel.grid.minor = element_line(linetype = "blank"), 
+                                                                                                                                  panel.background = element_rect(fill = "gray92"))+ylim(0,100)
+  
+  dev.off()
+  ggplotRegression <- function (fit)
+  {
+    
+    require(ggplot2)
+    
+    ggplot(fit$model, aes_string(x = names(fit$model)[2], y = names(fit$model)[1])) + 
+      geom_point() +
+      stat_smooth(method = "lm", col = "blue") +
+      labs(title = paste("Adj R2 = ",signif(summary(fit)$adj.r.squared, 5),
+                         "Intercept =",signif(fit$coef[[1]],5 ),
+                         " Slope =",signif(fit$coef[[2]], 5),
+                         " P =",signif(summary(fit)$coef[2,4], 5)))
+  }
+  fit<- lmer(totalabun ~ P.SN +(1|Lot), data=cp)
+  anova(fit)
+  fit<- lm(herb ~ P.SN, data=cp_scale)
+  anova(fit)
+  fit<- lm(pred ~ P.SN, data=cp_scale)
+  anova(fit)
+  fit<- lm(par ~ C.SN, data=cp_scale)
+  anova(fit)
+  fit<- lm(poll ~ C.SN, data=cp_scale)
+  anova(fit)
+  fitt<- lm(totalrich ~ C.SN, data=cp_scale)
+  anova(fitt)
+  fit<- lm(herbr ~ C.SN, data=cp_scale)
+  anova(fit)
+  fit<- lm(predr ~ C.SN, data=cp_scale)
+  anova(fit)
+  fit<- lm(parr ~ C.SN, data=cp_scale)
+  anova(fit)
+  fit<- lm(pollr ~ C.SN, data=cp_scale)
+  anova(fit)
+  tiff(filename="cpabun.tiff",width=160,height=100,units='mm',res=1000)
+  dev.off()
+  ggplotRegression(fit)+scale_x_discrete(name='Relative size of Crop:Semi-natural')+labs(y="Abundance") + theme(panel.background = element_rect(fill = NA))    + theme(panel.grid.major = element_line(colour = NA,                                                                                                                                                                                                                 size = 1.1), axis.text.x = element_text(colour = "antiquewhite"),  panel.background = element_rect(colour = "antiquewhite3", linetype = "solid"))   
+  
+  
+  fit1 <- lm(pollr ~ C.P, data=land)
+  anova(fit1)
+  fit2 <- lm(predr ~ C.P, data=land)
+  anova(fit2)
+  fit3<- lm(herbr ~ C.P, data=land)
+  anova(fit3)
+  fit4<- lm(parr ~ C.P, data=land)
+  anova(fit4)
+  #tiff(filename="cd.gg.tiff",width=160,height=100,units='mm',res=1000)
+  ggplotRegression(fit1)+scale_x_discrete(name='Relative size of Crop:Prairie')+labs(y="Abundance") + theme(panel.background = element_rect(fill = NA))    + theme(panel.grid.major = element_line(colour = NA, 
+                                                                                                                                                                                                   size = 1.1), axis.text.x = element_text(colour = "antiquewhite"),  panel.background = element_rect(colour = "antiquewhite3", linetype = "solid"))   
+  dev.off()  
+  tiff(filename="m.abun.gg.tiff",width=160,height=100,units='mm',res=1000)
+  
+  fit2 <- lm(m.abun ~ C.P, data=cd)
+  ggplotRegression(fit2)+scale_x_discrete(name='Relative size of Crop:Prairie')+labs(y="Arthropod abundance") + theme(panel.background = element_rect(fill = NA))    + theme(panel.grid.major = element_line(colour = NA, 
+                                                                                                                                                                                                             size = 1.1), axis.text.x = element_text(colour = "antiquewhite"),  panel.background = element_rect(colour = "antiquewhite3", linetype = "solid"))    
+  dev.off()
+  
+  #size of prairie 
+  plantr<-r1%>%group_by(Lot,FXN,Total.cover.size)%>%summarise(plant.richness=mean(plant.richness),Abundance=mean(Abundance))
+  fit1<-lm(Abundance~Total.cover.size*FXN,data=plantr)
+  summary(fit1,type=2)
+  tiff(filename="abunsize.tiff",width=140,height=100,units='mm',res=1000)
+  ########DOES PRAIRIRE SIZE MATTER
+  ggplot(plantr, aes(x = Total.cover.size, y =Abundance,col=FXN)) +
+    geom_point()+geom_smooth(method='lm')+ ylab("Abundance")+xlab("Cover size of prairie")+scale_colour_discrete(name = "Functional group")
+  dev.off()
+} ##total cover size
+{
+  all2<-merge(all,weather,by=c("Lot","cover"))
+core<-all2%>%filter(Lot!='Warr',Lot!='Mitch',Lot!='VanK',Lot!='Volg',Lot!='Caugh',Lot!='Caugh2',Lot!='Stew',Lot!="Mich",Lot!="Gilv",Lot!="Gilv2")
+str(core)
+#total fxn
+coverabun<-core%>%group_by(Lot,cover,tmin,tmax,prec)%>%summarise(Abun=sum(totalabun))
+abun<-coverabun%>%group_by(cover,tmin,tmax,prec)%>%summarise(Mean=mean(Abun),N=n(),SE=(sd(Abun,na.rm=T)/sqrt(N)))
+coverrich<-core%>%group_by(Lot,cover,tmin,tmax,prec)%>%summarise(Rich=sum(totalrich))
+rich<-coverrich%>%group_by(cover,tmin,tmax,prec)%>%summarise(Mean=mean(Rich),N=n(),SE=(sd(Rich,na.rm=T)/sqrt(N)))
+Anova(lmer(Abun~cover+cover*tmin+cover*tmax+cover*prec+(1|Lot),data=coverabun))
+Anova(lmer(Rich~cover+cover*tmin+cover*tmax+cover*prec+(1|Lot),data=coverrich))
+ggplot(coverabun,aes(x=prec,y= Abun,col=cover))+geom_jitter()+geom_smooth(method='lm')+facet_wrap(~cover)
+tiff(filename="richtmin",width=150,height=100,units='mm',res=1000)
+ggplot(coverrich,aes(x=tmin,y= Rich,col=cover))+geom_jitter()+geom_smooth(method='lm')+facet_wrap(~cover)+xlab("Minimum Temperature (°C)")+ylab("Total Richnes")
+dev.off()
+tiff(filename="richtmax",width=150,height=100,units='mm',res=1000)
+ggplot(coverrich,aes(x=tmax,y= Rich,col=cover))+geom_jitter()+geom_smooth(method='lm')+facet_wrap(~cover)+xlab("Maximum Temperature (°C)")+ylab("Total Richnes")
+dev.off()
+#herbivore
+coverabun<-core%>%group_by(Lot,cover,tmin,tmax,prec)%>%summarise(Abun=sum(Herbivore))
+abun<-coverabun%>%group_by(cover,tmin,tmax,prec)%>%summarise(Mean=mean(Abun),N=n(),SE=(sd(Abun,na.rm=T)/sqrt(N)))
+coverrich<-core%>%group_by(Lot,cover,tmin,tmax,prec)%>%summarise(Rich=sum(Herbivore_R))
+rich<-coverrich%>%group_by(cover,tmin,tmax,prec)%>%summarise(Mean=mean(Rich),N=n(),SE=(sd(Rich,na.rm=T)/sqrt(N)))
+Anova(lmer(Abun~cover+cover*tmin+cover*tmax+cover*prec+(1|Lot),data=coverabun))
+Anova(lmer(Rich~cover+cover*tmin+cover*tmax+cover*prec+(1|Lot),data=coverrich))
+
+#predator
+coverabun<-core%>%group_by(Lot,cover,tmin,tmax,prec)%>%summarise(Abun=sum(Predator))
+abun<-coverabun%>%group_by(cover,tmin,tmax,prec)%>%summarise(Mean=mean(Abun),N=n(),SE=(sd(Abun,na.rm=T)/sqrt(N)))
+coverrich<-core%>%group_by(Lot,cover,tmin,tmax,prec)%>%summarise(Rich=sum(Predator_R))
+rich<-coverrich%>%group_by(cover,tmin,tmax,prec)%>%summarise(Mean=mean(Rich),N=n(),SE=(sd(Rich,na.rm=T)/sqrt(N)))
+Anova(lmer(Abun~cover+cover*tmin+cover*tmax+cover*prec+(1|Lot),data=coverabun))
+Anova(lmer(Rich~cover+cover*tmin+cover*tmax+cover*prec+(1|Lot),data=coverrich))
+
+#parasitoid
+coverabun<-core%>%group_by(Lot,cover,tmin,tmax,prec)%>%summarise(Abun=sum(Parasitoid))
+abun<-coverabun%>%group_by(cover,tmin,tmax,prec)%>%summarise(Mean=mean(Abun),N=n(),SE=(sd(Abun,na.rm=T)/sqrt(N)))
+coverrich<-core%>%group_by(Lot,cover,tmin,tmax,prec)%>%summarise(Rich=sum(Parasitoid_R))
+rich<-coverrich%>%group_by(cover,tmin,tmax,prec)%>%summarise(Mean=mean(Rich),N=n(),SE=(sd(Rich,na.rm=T)/sqrt(N)))
+Anova(lmer(Abun~cover+cover*tmin+cover*tmax+cover*prec+(1|Lot),data=coverabun))
+Anova(lmer(Rich~cover+cover*tmin+cover*tmax+cover*prec+(1|Lot),data=coverrich))
+
+#pollinator
+coverabun<-core%>%group_by(Lot,cover,tmin,tmax,prec)%>%summarise(Abun=sum(Pollinator))
+abun<-coverabun%>%group_by(cover,tmin,tmax,prec)%>%summarise(Mean=mean(Abun),N=n(),SE=(sd(Abun,na.rm=T)/sqrt(N)))
+coverrich<-core%>%group_by(Lot,cover,tmin,tmax,prec)%>%summarise(Rich=sum(Pollinator_R))
+rich<-coverrich%>%group_by(cover,tmin,tmax,prec)%>%summarise(Mean=mean(Rich),N=n(),SE=(sd(Rich,na.rm=T)/sqrt(N)))
+Anova(lmer(Abun~cover+cover*tmin+cover*tmax+cover*prec+(1|Lot),data=coverabun))
+Anova(lmer(Rich~cover+cover*tmin+cover*tmax+cover*prec+(1|Lot),data=coverrich))
+
+} ##microclimate
+
+#visualize glmer 
+install.packages("githubinstall")
+githubinstall::githubinstall("sjPlot")
+library(sjmisc)
+##LOCAL POOL  
+{
+  bio<-read.csv('/Users/aleks/Desktop/correct csv files/biomass.csv')%>%filter(Functional.group!="NA"|Functional.group!="0")
+  bio$Functional.group[bio$Functional.group=='pest'] <- "Herbivore"
+  bio$Functional.group[bio$Functional.group=='anthophilous'] <- "total"
+  bio$Functional.group[bio$Functional.group=='decomposer'] <- "total"
+  bio$Functional.group[bio$Functional.group=='kleptoparasite'] <- "total"
+  bio$Functional.group[bio$Functional.group=='other'] <- "total"
+  bio$Biomass<-as.numeric(bio$Biomass)
+  bio$quadrant<-as.factor(bio$quadrant)
+  str(bio)
+  levels(bio$Functional.group)
+  biomass<-bio%>%group_by(Lot,cover,quadrant,Functional.group,method)%>%summarise(biomass=sum(Biomass,na.rm=T))%>%filter(Functional.group!="0")
+  biomass3<-biomass%>%spread(Functional.group,biomass)
+  biomass2<-biomass%>%group_by(cover)%>%summarise(Mean=mean(biomass),N=n(),SE=(sd(biomass,na.rm=T)/sqrt(N)))
+  Anova(lmer(biomass~cover*Functional.group*method+(1|Lot),data=biomass))
+  ##method of pin or vial specimens doesnt matter 
+  Anova(lmer(biomass~cover*Functional.group+(1|Lot)+(1|method),data=biomass))
+  tiff(filename="totalbiocoverfxn.tiff",width=150,height=170,units='mm',res=1000)
+  g<-ggplot(biomass2,aes(x=cover,y=Mean,ymin=Mean+SE,ymax=Mean-SE,fill=cover))+geom_bar(stat="identity",position="dodge", colour="black")+geom_errorbar(position=position_dodge(0.9),width=0.5,colour="black",(col='black')+theme(legend.position='none'))
+  g+labs(x = "Cover type",y="Mean biomass (mg)")+theme(axis.line=element_line(colour="black"),panel.grid.major=element_blank(), panel.grid.minor=element_blank(),panel.border=element_blank(),panel.background=element_blank())+  scale_fill_manual(values=c('#1f78b4',"#b2df8a"))
+  dev.off()
+  ##seperate by fnx
+  biomass3<-biomass%>%group_by(cover,Functional.group)%>%summarise(Mean=mean(biomass),N=n(),SE=(sd(biomass,na.rm=T)/sqrt(N)))
+  g<-ggplot(biomass3,aes(x=Functional.group,y=Mean,ymin=Mean+SE,ymax=Mean-SE,fill=Functional.group))+geom_bar(stat="identity",position="dodge", colour="black")+geom_errorbar(position=position_dodge(0.9),width=0.5,colour="black",(col='black')+theme(legend.position='none'))+facet_grid(cover~.)
+  g+labs(x = "Functional group",y="Mean biomass (mg)")+theme_bw()+ scale_fill_manual(values=c('#54278f','#2c7fb8','#ffffcc','#a1dab4'))+theme(axis.line=element_line(colour="black"),panel.grid.major=element_blank(), panel.grid.minor=element_blank(),panel.background=element_blank())
+ dev.off()
+
+bio1<-bio%>%group_by(Lot,cover,quadrant,Functional.group)%>%summarise(biomass=sum(Biomass))%>%spread(Functional.group,biomass)%>%mutate_all(funs(replace(., is.na(.), 0)))
+str(bio1)
+bio1$total_biomass <- bio1$'0' + bio1$'<NA>'
+bio1$'0' <- NULL;bio1$'<NA>' <- NULL
+}##biomass
+
+  bug<-read.csv('/Users/aleks/Desktop/correct csv files/graph images/dataframe.csv')%>%filter(core=="1")%>%filter(cover!="Wood")
+  bug$quadrant <- factor(bug$quadrant)
+
+  #biomass
+bug3<-merge(biomass,bug)%>%spread(Functional.group,biomass)%>%mutate_all(funs(replace(., is.na(.), 0)))
+M1<-glmer.nb(Predator~Total_Biomass+Total_Biomass:cover+Bare.Ground+Bare.Ground:cover+Litter+Litter:cover+PARintercept+PARintercept:cover+P_Live+
+               P_Live:cover+Lig_Live+Lig_Live:cover+OC_Live+OC_Live:cover+N_Live+N_Live:cover+CN_Live+CN_Live:cover+
+               (1|Lot),data=bug3)
+summary(M1)
+  str(bug)
+bug_scale <- scale(bug[,c(14,15,20,34:39)])%>%data.frame()
+bugabun<-bug[,c(1:3,23,29:32,40,46:49)]
+  bug2<-cbind(bugabun,bug_scale)
+
+{
+  summary(glmer.nb(totalabun~Total_Biomass+Total_Biomass:cover+Bare.Ground+Bare.Ground:cover+Litter+Litter:cover+PARintercept+PARintercept:cover+P_Live+
+                     P_Live:cover+Lig_Live+Lig_Live:cover+OC_Live+OC_Live:cover+CN_Live+CN_Live:cover+N_Live+N_Live:cover+
+                     (1|Lot),data=bug))
+  
+  summary(glmer.nb(totalrich~Total_Biomass+Total_Biomass:cover+Bare.Ground+Bare.Ground:cover+Litter+Litter:cover+PARintercept+PARintercept:cover+P_Live+
+                     P_Live:cover+Lig_Live+Lig_Live:cover+OC_Live+OC_Live:cover+CN_Live+CN_Live:cover+N_Live+N_Live:cover+
+                               (1|Lot),data=bug))
+  #dont used scaled bug df for these grpahs     
+  biomass<-ggplot(bug,aes(x=Total_Biomass,y= totalabun,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Plant biomass ")
+  bg<-ggplot(bug,aes(x=Bare.Ground,y= totalabun,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Bare ground ")
+  litter<-ggplot(bug,aes(x=Litter,y= totalabun,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Litter ")
+  PAR<-ggplot(bug,aes(x=PARintercept,y= totalabun,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("PAR intercept")
+  
+  biomassr<-ggplot(bug,aes(x=Total_Biomass,y= totalrich,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Plant biomass")
+  bgr<-ggplot(bug,aes(x=Bare.Ground,y= totalrich,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Bare ground")
+  litterr<-ggplot(bug,aes(x=Litter,y= totalrich,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Litter ")
+  PARr<-ggplot(bug,aes(x=PARintercept,y= totalrich,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("PAR intercept")
+  
+  
+  P<- ggplot(bug,aes(x=P_Live,y= totalabun,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Phosphorous ")
+  Lig<- ggplot(bug,aes(x=Lig_Live,y= totalabun,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Lignin ")
+  oc<-ggplot(subset(bug,OC_Live>20),aes(x=OC_Live,y= totalabun,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Organic carbon ")
+  N<-ggplot(bug,aes(x=N_Live,y= totalabun,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Nitrogen ")
+  CN<-ggplot(bug,aes(x=CN_Live,y= totalabun,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("C:N ")
+  
+  Pr<- ggplot(bug,aes(x=P_Live,y= totalrich,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Phosphorous ")
+  Ligr<- ggplot(bug,aes(x=Lig_Live,y= totalrich,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Lignin ")
+  ocr<-ggplot(subset(bug,OC_Live>20),aes(x=OC_Live,y= totalrich,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Organic carbon ")
+  Nr<-ggplot(bug,aes(x=N_Live,y= totalrich,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Nitrogen ")
+  CNr<-ggplot(bug,aes(x=CN_Live,y= totalrich,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("C:N ")
+  
+  quant<-ggarrange(biomass,bg,litter,PAR,legend=FALSE,ncol=5)
+  
+  quantr<-ggarrange(biomassr,bgr,litterr,PARr,legend=FALSE,ncol=5)
+  figure<-ggarrange(quant,quantr,nrow=2)
+  fig<-annotate_figure(figure,top= text_grob("Cover Quantity Variables", color = "black", face = "bold",size = 14),fig.lab="Total Functional Groups")
+  
+  
+  qual<-ggarrange(P,Lig,oc,N,CN,legend=FALSE,ncol=5)
+  qualr<-ggarrange(Pr,Ligr,ocr,Nr,CNr,legend=FALSE,ncol=5)
+  figure2<-ggarrange(qual,qualr,nrow=2)
+  fig2<-annotate_figure(figure2,top= text_grob("Cover Quality Variables", color = "black", face = "bold",size = 14))
+  
+  tiff(filename="total.tiff",width=250,height=180,units='mm',res=1000)
+  ggarrange(fig,fig2,nrow=2)
+  dev.off()
+  
+  sd1.1<- core %>% dplyr::select(Lot,quadrant,cover,Total_Biomass, Bare.Ground,PARintercept,Litter,CN_Live,Lig_Live,N_Live,P_Live,OC_Live)
+  sd2<- sd1.1 %>% gather(Metric,Value,-Lot,-cover,-quadrant) %>% filter(!is.na(Value)) %>% mutate(Value = replace(Value, Value=='', NA))
+  
+  tiff(filename="CN.tiff",width=160,height=100,units='mm',res=1000)
+  Anova(lm(Bare.Ground~cover,data=core))
+  Anova(lm(Total_Biomass~cover,data=core))
+  Anova(lm(Litter~cover,data=core))
+  Anova(lm(PARintercept~cover,data=core))
+  Anova(lm(P_Live~cover,data=core))
+  Anova(lm(Lig_Live~cover,data=core))
+  Anova(lm(OC_Live~cover,data=core))
+  Anova(lm(N_Live~cover,data=sd1.0))
+  Anova(lm(CN_Live~cover,data=sd1.0))
+  BG<- ggplot((sd2 %>% filter(Metric=='Bare.Ground') %>% group_by(cover,Metric) %>% summarise(MEAN=mean(Value,na.rm=T),SE=(sd(Value,na.rm=T)/sqrt(n())))),aes(cover, y=MEAN, fill=cover))+
+    geom_bar(stat='identity')+scale_fill_manual(values=c('forestgreen','yellow2'))+
+    geom_errorbar(aes(ymin=MEAN-SE, ymax=MEAN+SE), width=0.2)+
+    ylab('Bare ground (% cover)') + theme_bw()+theme(panel.background = element_rect(fill = NA), 
+                                        legend.position = "none") + theme(panel.grid.major = element_line(colour = NA), 
+                                                                          panel.grid.minor = element_line(colour = NA), 
+                                                                          plot.background = element_rect(colour = NA))
+  BG
+  Biomass<- ggplot((sd2 %>% filter(Metric=='Total_Biomass') %>% group_by(cover,Metric) %>% summarise(MEAN=mean(Value,na.rm=T),SE=(sd(Value,na.rm=T)/sqrt(n())))),aes(cover, y=MEAN, fill=cover))+
+    geom_bar(stat='identity')+scale_fill_manual(values=c('forestgreen','yellow2'))+
+    geom_errorbar(aes(ymin=MEAN-SE, ymax=MEAN+SE), width=0.2)+
+    ylab('Biomass (g)') + theme_bw()+theme(panel.background = element_rect(fill = NA), 
+                                                     legend.position = "none") + theme(panel.grid.major = element_line(colour = NA), 
+                                                                                       panel.grid.minor = element_line(colour = NA), 
+                                                                                       plot.background = element_rect(colour = NA))
+  Biomass
+  PAR<- ggplot((sd2 %>% filter(Metric=='PARintercept') %>% group_by(cover,Metric) %>% summarise(MEAN=mean(Value,na.rm=T),SE=(sd(Value,na.rm=T)/sqrt(n())))),aes(cover, y=MEAN, fill=cover))+
+    geom_bar(stat='identity')+scale_fill_manual(values=c('forestgreen','yellow2'))+
+    geom_errorbar(aes(ymin=MEAN-SE, ymax=MEAN+SE), width=0.2)+
+    ylab('PARintercept') + theme_bw()+theme(panel.background = element_rect(fill = NA), 
+                                                     legend.position = "none") + theme(panel.grid.major = element_line(colour = NA), 
+                                                                                       panel.grid.minor = element_line(colour = NA), 
+                                                                                       plot.background = element_rect(colour = NA))
+  PAR
+  Litter<- ggplot((sd2 %>% filter(Metric=='Litter') %>% group_by(cover,Metric) %>% summarise(MEAN=mean(Value,na.rm=T),SE=(sd(Value,na.rm=T)/sqrt(n())))),aes(cover, y=MEAN, fill=cover))+
+    geom_bar(stat='identity')+scale_fill_manual(values=c('forestgreen','yellow2'))+
+    geom_errorbar(aes(ymin=MEAN-SE, ymax=MEAN+SE), width=0.2)+
+    ylab('Litter ( % cover)') + theme_bw()+theme(panel.background = element_rect(fill = NA), 
+                                        legend.position = "none") + theme(panel.grid.major = element_line(colour = NA), 
+                                                                          panel.grid.minor = element_line(colour = NA), 
+                                                                          plot.background = element_rect(colour = NA))
+  Litter
+ 
+  rawsoildata<-read.csv('/Users/aleks/Desktop/correct csv files/Soil Data 2017 - Raw Data - July 25, 2018.csv')%>%filter(cover!="W1",cover!="RW1",Lot!="RARE",Lot!='Gilv3',Lot!='Gilv4')
+  soildata<-rawsoildata%>%group_by(Lot,cover,quadrant)%>%summarise(g_Grass = mean(g_Grass,na.rm=T), g_Forb=mean(g_Forb,na.rm=T),g_Litter=mean(g_Litter,na.rm=T),
+                                                                   Grass_P=mean(Grass_P,na.rm=T),Grass_N=mean(Grass_N,na.rm=T),Grass_OC=mean(Grass_OC,na.rm=T),Grass_Lig=mean(Grass_Lig,na.rm=T),Grass_CN=mean(Grass_CN,na.rm=T),
+                                                                   Forb_P=mean(Forb_P,na.rm=T),Forb_N=mean(Forb_N,na.rm=T),Forb_OC=mean(Forb_OC,na.rm=T),Forb_Lig=mean(Forb_Lig,na.rm=T),Forb_CN=mean(Forb_CN,na.rm=T),
+                                                                   Litter_P=mean(Litter_P,na.rm=T),Litter_N=mean(Litter_N,na.rm=T),Litter_OC=mean(Litter_OC,na.rm=T),Litter_Lig=mean(Litter_Lig,na.rm=T),Litter_CN=mean(Litter_CN,na.rm=T),
+                                                                   Total_Biomass=mean(Total_Biomass,na.rm=T))%>% mutate_all(funs(replace(., is.nan(.), 0)))%>%filter(quadrant=='1'|quadrant=='3'|quadrant=='5'|quadrant=='7'|quadrant=='9')
+  
+  sd1.0<- soildata %>% transform(P_Live=((g_Grass/(g_Grass+g_Forb))*Grass_P + (g_Forb/(g_Forb+g_Grass))*Forb_P)) %>% transform(Lig_Live=((g_Grass/(g_Grass+g_Forb))*Grass_Lig + (g_Forb/(g_Forb+g_Grass))*Forb_Lig)) %>% transform(OC_Live=((g_Grass/(g_Grass+g_Forb))*Grass_OC + (g_Forb/(g_Forb+g_Grass))*Forb_OC))%>% transform(Lig_Dead=Litter_Lig)%>% transform(OC_Dead=Litter_OC) %>% transform(N_Live=((g_Grass/(g_Grass+g_Forb))*Grass_N + (g_Forb/(g_Forb+g_Grass))*Forb_N)) %>% transform(CN_Live=((g_Grass/(g_Grass+g_Forb))*Grass_CN + (g_Forb/(g_Forb+g_Grass))*Forb_CN)) %>% transform(CN_Dead=Litter_CN) %>% dplyr::select(Lot,quadrant,cover,Total_Biomass, Lig_Live,Lig_Dead,N_Live,P_Live, CN_Live, CN_Dead, OC_Live, OC_Dead)
+  sd1<- sd1.0 %>% gather(Metric,Value,-Lot,-cover,-quadrant) %>% filter(!is.na(Value)) %>% mutate(Value = replace(Value, Value=='', NA))
+  
+  Nit<-ggplot((sd1 %>% filter(Metric=='N_Live') %>% group_by(cover,Metric) %>% summarise(MEAN=mean(Value,na.rm=T),SE=(sd(Value,na.rm=T)/sqrt(n())))),aes(cover, y=MEAN, fill=cover))+
+    geom_bar(stat='identity')+scale_fill_manual(values=c('forestgreen','yellow2'))+
+    geom_errorbar(aes(ymin=MEAN-SE, ymax=MEAN+SE), width=0.2)+
+    ylab('Nitrogen (%)')+ theme_bw()+theme(panel.background = element_rect(fill = NA), 
+                                             legend.position = "none") + theme(panel.grid.major = element_line(colour = NA), 
+                                                                               panel.grid.minor = element_line(colour = NA), 
+                                                                               plot.background = element_rect(colour = NA))
+  Nit
+  dev.off()
+  tiff(filename="Lignin.tiff",width=160,height=100,units='mm',res=1000)
+  
+  Lig<-ggplot((sd1 %>% filter(Metric=='Lig_Live') %>% group_by(cover,Metric) %>% summarise(MEAN=mean(Value,na.rm=T),SE=(sd(Value,na.rm=T)/sqrt(n())))),aes(cover, y=MEAN, fill=cover))+
+    geom_bar(stat='identity')+scale_fill_manual(values=c('forestgreen','yellow2'))+
+    geom_errorbar(aes(ymin=MEAN-SE, ymax=MEAN+SE), width=0.2)+
+    ylab('Lignin (%)')+ theme_bw()+theme(panel.background = element_rect(fill = NA), 
+                                            legend.position = "none") + theme(panel.grid.major = element_line(colour = NA), 
+                                                                              panel.grid.minor = element_line(colour = NA), 
+                                                                              plot.background = element_rect(colour = NA))
+  Lig
+ 
+  
+  OC<-ggplot((sd2 %>% filter(Metric=='OC_Live') %>% group_by(cover,Metric) %>% summarise(MEAN=mean(Value,na.rm=T),SE=(sd(Value,na.rm=T)/sqrt(n())))),aes(cover, y=MEAN, fill=cover))+
+    geom_bar(stat='identity')+scale_fill_manual(values=c('forestgreen','yellow2'))+
+    geom_errorbar(aes(ymin=MEAN-SE, ymax=MEAN+SE), width=0.2)+
+    ylab('Organic carbon (%)')+ theme_bw()+theme(panel.background = element_rect(fill = NA), 
+                                                    legend.position = "none") + theme(panel.grid.major = element_line(colour = NA), 
+                                                                                      panel.grid.minor = element_line(colour = NA), 
+                                                                                      plot.background = element_rect(colour = NA))
+  OC
+
+  
+  Phos<- ggplot((sd1 %>% filter(Metric=='P_Live') %>% group_by(cover,Metric) %>% summarise(MEAN=mean(Value,na.rm=T),SE=(sd(Value,na.rm=T)/sqrt(n())))),aes(cover, y=MEAN, fill=cover))+
+    geom_bar(stat='identity')+scale_fill_manual(values=c('forestgreen','yellow2'))+
+    geom_errorbar(aes(ymin=MEAN-SE, ymax=MEAN+SE), width=0.2)+
+    ylab('Phosphorous (%)')+ theme_bw()+theme(panel.background = element_rect(fill = NA), 
+                                                 legend.position = "none") + theme(panel.grid.major = element_line(colour = NA), 
+                                                                                   panel.grid.minor = element_line(colour = NA), 
+                                                                                   plot.background = element_rect(colour = NA))
+  Phos
+  CN_Live<- ggplot((sd1 %>% filter(Metric=='CN_Live') %>% group_by(cover,Metric) %>% summarise(MEAN=mean(Value,na.rm=T),SE=(sd(Value,na.rm=T)/sqrt(n())))),aes(cover, y=MEAN, fill=cover))+
+    geom_bar(stat='identity')+scale_fill_manual(values=c('forestgreen','yellow2'))+
+    geom_errorbar(aes(ymin=MEAN-SE, ymax=MEAN+SE), width=0.2)+
+    ylab('C:N Ratio (%)')+ theme_bw()+theme(panel.background = element_rect(fill = NA), 
+                                                 legend.position = "none") + theme(panel.grid.major = element_line(colour = NA), 
+                                                                                   panel.grid.minor = element_line(colour = NA), 
+                                                                                   plot.background = element_rect(colour = NA))
+  CN_Live
+  quant<-ggarrange(Biomass,BG,Litter,PAR,legend=FALSE,nrow=5)
+  quant
+  fig2<-annotate_figure(quant,top= text_grob("Cover Quantity Variables", color = "black", face = "bold",size = 14))
+ qual<-ggarrange(Phos,Lig,OC,Nit,CN_Live,legend=FALSE,nrow=5)
+ fig3<-annotate_figure(qual,top= text_grob("Cover Quality Variables", color = "black", face = "bold",size = 14))
+ 
+  
+  
+  tiff(filename="totalplants.tiff",width=180,height=250,units='mm',res=1000)
+ggarrange(fig2,fig3,ncol=2)
+  dev.off()
+}#totalabun totalrich
+  {
+    #herbivore
+    summary(glmer.nb(Herbivore~Total_Biomass+Total_Biomass:cover+Bare.Ground+Bare.Ground:cover+Litter+Litter:cover+PARintercept+PARintercept:cover+P_Live+
+                       P_Live:cover+Lig_Live+Lig_Live:cover+OC_Live+OC_Live:cover+CN_Live+CN_Live:cover+N_Live+N_Live:cover+
+                       (1|Lot),data=bug))
+    summary(glmer.nb(Herbivore_R~Total_Biomass+Total_Biomass:cover+Bare.Ground+Bare.Ground:cover+Litter+Litter:cover+PARintercept+PARintercept:cover+P_Live+
+                       P_Live:cover+Lig_Live+Lig_Live:cover+OC_Live+OC_Live:cover+CN_Live+CN_Live:cover+N_Live+N_Live:cover+
+                       (1|Lot),data=bug))
+    
+    
+    biomass<-ggplot(subset(bug,Herbivore<20),aes(x=Total_Biomass,y= Herbivore,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Plant biomass ")
+    bg<-ggplot(subset(bug,Herbivore<20),aes(x=Bare.Ground,y= Herbivore,col=cover))+geom_jitter()+scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Bare ground ")
+    litter<-ggplot(subset(bug,Herbivore<20),aes(x=Litter,y= Herbivore,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Litter ")
+    PAR<-ggplot(subset(bug,Herbivore<20),aes(x=PARintercept,y= Herbivore,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("PAR intercept")
+ 
+    biomassr<-ggplot(bug,aes(x=Total_Biomass,y= Herbivore_R,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Plant biomass")
+    bgr<-ggplot(bug,aes(x=Bare.Ground,y= Herbivore_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Bare ground")
+    litterr<-ggplot(bug,aes(x=Litter,y= Herbivore_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Litter ")
+    PARr<-ggplot(bug,aes(x=PARintercept,y= Herbivore_R,col=cover))+geom_jitter()+scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("PAR intercept")
+    
+    
+    P<- ggplot(bug,aes(x=P_Live,y= Herbivore,col=cover))+geom_jitter()+scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Phosphorous ")
+    Lig<- ggplot(bug,aes(x=Lig_Live,y= Herbivore,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Lignin ")
+    oc<-ggplot(subset(bug,OC_Live>20),aes(x=OC_Live,y= Herbivore,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Organic carbon ")
+    N<-ggplot(bug,aes(x=N_Live,y= Herbivore,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Nitrogen ")
+    CN<-ggplot(bug,aes(x=CN_Live,y= Herbivore,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("C:N ")
+    
+    Pr<- ggplot(bug,aes(x=P_Live,y= Herbivore_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Phosphorous ")
+    Ligr<- ggplot(bug,aes(x=Lig_Live,y= Herbivore_R,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Lignin ")
+    ocr<-ggplot(subset(bug,OC_Live>20),aes(x=OC_Live,y= Herbivore_R,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Organic carbon ")
+    Nr<-ggplot(bug,aes(x=N_Live,y= Herbivore_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Nitrogen ")
+    CNr<-ggplot(bug,aes(x=CN_Live,y= Herbivore_R,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("C:N ")
+    
+    quant<-ggarrange(biomass,bg,litter,PAR,legend=FALSE,ncol=5)
+  
+    quantr<-ggarrange(biomassr,bgr,litterr,PARr,legend=FALSE,ncol=5)
+    figure<-ggarrange(quant,quantr,nrow=2)
+    fig<-annotate_figure(figure,top= text_grob("Cover Quantity Variables", color = "black", face = "bold",size = 14),fig.lab="Herbivore Functional Group")
+  
+    
+    qual<-ggarrange(P,Lig,oc,N,CN,legend=FALSE,ncol=5)
+    qualr<-ggarrange(Pr,Ligr,ocr,Nr,CNr,legend=FALSE,ncol=5)
+    figure2<-ggarrange(qual,qualr,nrow=2)
+    fig2<-annotate_figure(figure2,top= text_grob("Cover Quality Variables", color = "black", face = "bold",size = 14))
+
+    tiff(filename="herbivore.tiff",width=250,height=180,units='mm',res=1000)
+    ggarrange(fig,fig2,nrow=2)
+dev.off()
+  }##herbivore FXN
+  {
+    #predator
+    summary(glmer.nb(Predator~Total_Biomass+Total_Biomass:cover+Bare.Ground+Bare.Ground:cover+Litter+Litter:cover+PARintercept+PARintercept:cover+P_Live+
+                       P_Live:cover+Lig_Live+Lig_Live:cover+OC_Live+OC_Live:cover+CN_Live+CN_Live:cover+N_Live+N_Live:cover+
+                       (1|Lot),data=bug))
+    summary(glmer.nb(Predator_R~Total_Biomass+Total_Biomass:cover+Bare.Ground+Bare.Ground:cover+Litter+Litter:cover+PARintercept+PARintercept:cover+P_Live+
+                       P_Live:cover+Lig_Live+Lig_Live:cover+OC_Live+OC_Live:cover+CN_Live+CN_Live:cover+N_Live+N_Live:cover+
+                       (1|Lot),data=bug))
+    
+    biomass<-ggplot(bug,aes(x=Total_Biomass,y= Predator,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Plant biomass ")
+    bg<-ggplot(bug,aes(x=Bare.Ground,y= Predator,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Bare ground ")
+    litter<-ggplot(bug,aes(x=Litter,y= Predator,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Litter ")
+    PAR<-ggplot(bug,aes(x=PARintercept,y= Predator,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("PAR intercept")
+    
+    biomassr<-ggplot(bug,aes(x=Total_Biomass,y= Predator_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Plant biomass")
+    bgr<-ggplot(bug,aes(x=Bare.Ground,y= Predator_R,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Bare ground")
+    litterr<-ggplot(bug,aes(x=Litter,y= Predator_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Litter ")
+    PARr<-ggplot(bug,aes(x=PARintercept,y= Predator_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("PAR intercept")
+    
+    
+    P<- ggplot(bug,aes(x=P_Live,y= Predator,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Phosphorous ")
+    Lig<- ggplot(bug,aes(x=Lig_Live,y= Predator,col=cover))+geom_jitter() +scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Lignin ")
+    oc<-ggplot(subset(bug,OC_Live>20),aes(x=OC_Live,y= Predator,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Organic carbon ")
+    N<-ggplot(bug,aes(x=N_Live,y= Predator,col=cover))+geom_jitter()+scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Nitrogen ")
+    CN<-ggplot(bug,aes(x=CN_Live,y= Predator,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("C:N ")
+    
+    Pr<- ggplot(bug,aes(x=P_Live,y= Predator_R,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Phosphorous ")
+    Ligr<- ggplot(bug,aes(x=Lig_Live,y= Predator_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Lignin ")
+    ocr<-ggplot(subset(bug,OC_Live>20),aes(x=OC_Live,y= Predator_R,col=cover))+geom_jitter()+scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Organic carbon ")
+    Nr<-ggplot(bug,aes(x=N_Live,y= Predator_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Nitrogen ")
+    CNr<-ggplot(bug,aes(x=CN_Live,y= Predator_R,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("C:N ")
+    
+    quant<-ggarrange(biomass,bg,litter,PAR,legend=FALSE,ncol=5)
+    quantr<-ggarrange(biomassr,bgr,litterr,PARr,legend=FALSE,ncol=5)
+    figure<-ggarrange(quant,quantr,nrow=2)
+    fig<-annotate_figure(figure,top= text_grob("Cover Quantity Variables", color = "black", face = "bold",size = 14),fig.lab="Predator Functional Group")
+    
+    
+    qual<-ggarrange(P,Lig,oc,N,CN,legend=FALSE,ncol=5)
+    qualr<-ggarrange(Pr,Ligr,ocr,Nr,CNr,legend=FALSE,ncol=5)
+    figure2<-ggarrange(qual,qualr,nrow=2)
+    fig2<-annotate_figure(figure2,top= text_grob("Cover Quality Variables", color = "black", face = "bold",size = 14))
+    
+    tiff(filename="Predator.tiff",width=250,height=180,units='mm',res=1000)
+    ggarrange(fig,fig2,nrow=2)
+    dev.off()
+  }##predator FXN
+  {
+   
+    #parasitoid
+    summary(glmer.nb(Parasitoid~Total_Biomass+Total_Biomass:cover+Bare.Ground+Bare.Ground:cover+Litter+Litter:cover+PARintercept+PARintercept:cover+P_Live+
+                       P_Live:cover+Lig_Live+Lig_Live:cover+OC_Live+OC_Live:cover+CN_Live+CN_Live:cover+N_Live+N_Live:cover+
+                       (1|Lot),data=bug2,control=glmerControl(optimizer="bobyqa")))
+            
+    summary(glmer.nb(Parasitoid_R~Total_Biomass+Total_Biomass:cover+Bare.Ground+Bare.Ground:cover+Litter+Litter:cover+PARintercept+PARintercept:cover+P_Live+
+                       P_Live:cover+Lig_Live+Lig_Live:cover+OC_Live+OC_Live:cover+CN_Live+CN_Live:cover+N_Live+N_Live:cover+
+                       (1|Lot),data=bug,control=glmerControl(optimizer="bobyqa")))
+    
+     biomass<-ggplot(bug,aes(x=Total_Biomass,y= Parasitoid,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Plant biomass ")
+    bg<-ggplot(bug,aes(x=Bare.Ground,y= Parasitoid,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Bare ground ")
+    litter<-ggplot(bug,aes(x=Litter,y= Parasitoid,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Litter ")
+    PAR<-ggplot(bug,aes(x=PARintercept,y= Parasitoid,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("PAR intercept")
+    
+    biomassr<-ggplot(bug,aes(x=Total_Biomass,y= Parasitoid_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Plant biomass")
+    bgr<-ggplot(bug,aes(x=Bare.Ground,y= Parasitoid_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Bare ground")
+    litterr<-ggplot(bug,aes(x=Litter,y= Parasitoid_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Litter ")
+    PARr<-ggplot(bug,aes(x=PARintercept,y= Parasitoid_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("PAR intercept")
+    
+    
+    P<- ggplot(bug,aes(x=P_Live,y= Parasitoid,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Phosphorous ")
+    Lig<- ggplot(bug,aes(x=Lig_Live,y= Parasitoid,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Lignin ")
+    oc<-ggplot(subset(bug,OC_Live>20),aes(x=OC_Live,y= Parasitoid,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Organic carbon ")
+    N<-ggplot(bug,aes(x=N_Live,y= Parasitoid,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Nitrogen ")
+    CN<-ggplot(bug,aes(x=CN_Live,y= Parasitoid,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("C:N ")
+    
+    Pr<- ggplot(bug,aes(x=P_Live,y= Parasitoid_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Phosphorous ")
+    Ligr<- ggplot(bug,aes(x=Lig_Live,y= Parasitoid_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Lignin ")
+    ocr<-ggplot(subset(bug,OC_Live>20),aes(x=OC_Live,y= Parasitoid_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Organic carbon ")
+    Nr<-ggplot(bug,aes(x=N_Live,y= Parasitoid_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Nitrogen ")
+    CNr<-ggplot(bug,aes(x=CN_Live,y= Parasitoid_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("C:N ")
+    
+    quant<-ggarrange(biomass,bg,litter,PAR,legend=FALSE,ncol=5)
+    quantr<-ggarrange(biomassr,bgr,litterr,PARr,legend=FALSE,ncol=5)
+    figure<-ggarrange(quant,quantr,nrow=2)
+    fig<-annotate_figure(figure,top= text_grob("Cover Quantity Variables", color = "black", face = "bold",size = 14),fig.lab="Parasitoid Functional Group")
+    
+    
+    qual<-ggarrange(P,Lig,oc,N,CN,legend=FALSE,ncol=5)
+    qualr<-ggarrange(Pr,Ligr,ocr,Nr,CNr,legend=FALSE,ncol=5)
+    figure2<-ggarrange(qual,qualr,nrow=2)
+    fig2<-annotate_figure(figure2,top= text_grob("Cover Quality Variables", color = "black", face = "bold",size = 14))
+    
+    tiff(filename="Parasitoid.tiff",width=250,height=180,units='mm',res=1000)
+    ggarrange(fig,fig2,nrow=2)
+    dev.off()
+  }##parasitoid FXN
+  {
+    #pollinator
+    summary(glmer.nb(Pollinator~Total_Biomass+Total_Biomass:cover+Bare.Ground+Bare.Ground:cover+Litter+Litter:cover+PARintercept+PARintercept:cover+P_Live+
+                       P_Live:cover+Lig_Live+Lig_Live:cover+OC_Live+OC_Live:cover+CN_Live+CN_Live:cover+N_Live+N_Live:cover+
+                       (1|Lot),data=bug))
+    
+    summary(glmer.nb(Pollinator_R~Total_Biomass+Total_Biomass:cover+Bare.Ground+Bare.Ground:cover+Litter+Litter:cover+PARintercept+PARintercept:cover+P_Live+
+                       P_Live:cover+Lig_Live+Lig_Live:cover+OC_Live+OC_Live:cover+CN_Live+CN_Live:cover+N_Live+N_Live:cover+
+                       (1|Lot),data=bug))
+    
+    biomass<-ggplot(subset(bug,Pollinator<20),aes(x=Total_Biomass,y= Pollinator,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Plant biomass ")
+    bg<-ggplot(subset(bug,Pollinator<20),aes(x=Bare.Ground,y= Pollinator,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Bare ground ")
+    litter<-ggplot(subset(bug,Pollinator<20),aes(x=Litter,y= Pollinator,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Litter ")
+    PAR<-ggplot(subset(bug,Pollinator<20),aes(x=PARintercept,y= Pollinator,col=cover))+geom_jitter(+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("PAR intercept")
+    
+    biomassr<-ggplot(bug,aes(x=Total_Biomass,y= Pollinator_R,col=cover))+geom_jitter() scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Plant biomass")
+    bgr<-ggplot(bug,aes(x=Bare.Ground,y= Pollinator_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Bare ground")
+    litterr<-ggplot(bug,aes(x=Litter,y= Pollinator_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Litter ")
+    PARr<-ggplot(bug,aes(x=PARintercept,y= Pollinator_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("PAR intercept")
+    
+    
+    P<- ggplot(subset(bug,Pollinator<20),aes(x=P_Live,y= Pollinator,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Phosphorous ")
+    Lig<- ggplot(subset(bug,Pollinator<20),aes(x=Lig_Live,y= Pollinator,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Lignin ")
+    oc<-ggplot(subset(bug,OC_Live>20&Pollinator<20),aes(x=OC_Live,y= Pollinator,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Organic carbon ")
+    N<-ggplot(subset(bug,Pollinator<20),aes(x=N_Live,y= Pollinator,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Nitrogen ")
+    CN<-ggplot(subset(bug,Pollinator<20),aes(x=CN_Live,y= Pollinator,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("C:N ")
+    
+    Pr<- ggplot(bug,aes(x=P_Live,y= Pollinator_R,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Phosphorous ")
+    Ligr<- ggplot(bug,aes(x=Lig_Live,y= Pollinator_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Lignin ")
+    ocr<-ggplot(subset(bug,OC_Live>20),aes(x=OC_Live,y= Pollinator_R,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Organic carbon ")
+    Nr<-ggplot(bug,aes(x=N_Live,y= Pollinator_R,col=cover))+geom_jitter()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Nitrogen ")
+    CNr<-ggplot(bug,aes(x=CN_Live,y= Pollinator_R,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("C:N ")
+    
+    quant<-ggarrange(biomass,bg,litter,PAR,legend=FALSE,ncol=5)
+    quantr<-ggarrange(biomassr,bgr,litterr,PARr,legend=FALSE,ncol=5)
+    figure<-ggarrange(quant,quantr,nrow=2)
+    fig<-annotate_figure(figure,top= text_grob("Cover Quantity Variables", color = "black", face = "bold",size = 14),fig.lab="Pollinator Functional Group")
+    
+    
+    qual<-ggarrange(P,Lig,oc,N,CN,legend=FALSE,ncol=5)
+    qualr<-ggarrange(Pr,Ligr,ocr,Nr,CNr,legend=FALSE,ncol=5)
+    figure2<-ggarrange(qual,qualr,nrow=2)
+    fig2<-annotate_figure(figure2,top= text_grob("Cover Quality Variables", color = "black", face = "bold",size = 14))
+    
+    tiff(filename="Pollinator.tiff",width=250,height=180,units='mm',res=1000)
+    ggarrange(fig,fig2,nrow=2)
+    dev.off()
+  }##Pollinator FXN
+ 
+  {  
+  ##totalabun 
+  Anova(glmer.nb(totalabun~Total_Biomass*cover+(1|Lot),data=bug))
+  Anova(glmer.nb(totalabun~Bare.Ground*cover+(1|Lot),data=bug))           
+  Anova(glmer.nb(totalabun~Litter*cover(1|Lot),data=bug))
+  Anova(glmer.nb(totalabun~PARintercept*cover+(1|Lot),data=bug))
+  Anova(glmer.nb(totalabun~P_Live*cover+(1|Lot),data=bug))
+  Anova(glmer.nb(totalabun~Lig_Live*cover+(1|Lot),data=bug))
+  Anova(glmer.nb(totalabun~OC_Live*cover+(1|Lot),data=bug))
+  Anova(glmer.nb(totalabun~CN_Live*cover+(1|Lot),data=bug))
+  Anova(glmer.nb(totalabun~N_Live+N_Live:cover+(1|Lot),data=bug))
+  
+
+  biomass<-ggplot(bug,aes(x=Total_Biomass,y= totalabun,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Plant biomass (% cover)")+ggtitle("Cover quantity variables")
+  bg<-ggplot(bug,aes(x=Bare.Ground,y= totalabun,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Bare ground (% cover)")
+  litter<-ggplot(bug,aes(x=Litter,y= totalabun,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Litter (% cover)")
+  PAR<-ggplot(bug,aes(x=PARintercept,y= totalabun,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("PAR intercept (canopy-soil level)")
+  P<- ggplot(bug,aes(x=P_Live,y= totalabun,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Phosphorous (% content)")+ggtitle("Cover quality variables")
+  Lig<- ggplot(bug,aes(x=Lig_Live,y= totalabun,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Lignin (% content)")
+  oc<-ggplot(subset(bug,OC_Live>20),aes(x=OC_Live,y= totalabun,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Organic carbon (% content)")
+  N<-ggplot(bug,aes(x=N_Live,y= totalabun,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("Nitrogen (% content)")
+  CN<-ggplot(bug,aes(x=CN_Live,y= totalabun,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Abundance")+xlab("C:N (% content)")
+  
+  quant<-ggarrange(biomass,bg,litter,PAR,legend=FALSE,ncol=5)
+  qual<-ggarrange(P,Lig,oc,N,CN,legend=FALSE,ncol=5)
+  tiff(filename="cqpoll1.tiff",width=150,height=160,units='mm',res=1000)
+  ggarrange(quant,qual,nrow=2)
+  dev.off()
+ #totalrich
+  biomass<-ggplot(bug,aes(x=Total_Biomass,y= totalrich,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Plant biomass (% cover)")+ggtitle("Cover quantity variables")
+  bg<-ggplot(bug,aes(x=Bare.Ground,y= totalrich,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Bare ground (% cover)")
+  litter<-ggplot(bug,aes(x=Litter,y= totalrich,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Litter (% cover)")
+  PAR<-ggplot(bug,aes(x=PARintercept,y= totalrich,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("PAR intercept (canopy-soil level)")
+  P<- ggplot(bug,aes(x=P_Live,y= totalrich,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Phosphorous (% content)")+ggtitle("Cover quality variables")
+  Lig<- ggplot(bug,aes(x=Lig_Live,y= totalrich,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Lignin (% content)")
+  oc<-ggplot(subset(bug,OC_Live>20),aes(x=OC_Live,y= totalrich,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Organic carbon (% content)")
+  N<-ggplot(bug,aes(x=N_Live,y= totalrich,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("Nitrogen (% content)")
+  CN<-ggplot(bug,aes(x=CN_Live,y= totalrich,col=cover))+geom_jitter()+geom_smooth(method="lm",se=FALSE)+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+ylab("Richness")+xlab("C:N (% content)")
+  
+  quant<-ggarrange(biomass,bg,litter,PAR,legend=FALSE,ncol=5)
+  qual<-ggarrange(P,Lig,oc,N,CN,legend=FALSE,ncol=5)
+  tiff(filename="cqqherbr.tiff",width=150,height=160,units='mm',res=1000)
+  ggarrange(quant,qual,nrow=2)
+  dev.off()
+  
+  }## totalabun and rich
+
+  {
+    M1<-glmer.nb(Herbivore~Total_Biomass+Total_Biomass:cover+Bare.Ground+Bare.Ground:cover+Litter+Litter:cover+PARintercept+PARintercept:cover+P_Live+
+                 P_Live:cover+Lig_Live+Lig_Live:cover+OC_Live+OC_Live:cover+N_Live+N_Live:cover+CN_Live+CN_Live:cover+
+                 (1|Lot),data=bug)
+  
+ set_theme(theme = "forest")
+ tiff(filename="glmerherb.tiff",width=150,height=150,units='mm',res=1000)
+ plot_model(M1,type="est",show.p=TRUE,transfrom=NULL,show.values=TRUE,value.offset = .4,order.terms = c(1,10,2,11,3,12,4,13,5,14,6,15,7,16,8,17,9,18))
+dev.off()
+ tab_model(M1,show.ci=FALSE)
+
+
+ M2<-glmer.nb(Predator~Total_Biomass+Bare.Ground+Litter+PARintercept+P_Live+
+                Lig_Live+OC_Live+N_Live+CN_Live+
+                Total_Biomass:cover+Bare.Ground:cover+Litter:cover+PARintercept:cover+P_Live:cover+Lig_Live:cover+OC_Live:cover+N_Live:cover+CN_Live:cover+PARintercept:cover+
+                (1|Lot),data=bug)
+ summary(M2)
+ tiff(filename="glmerpred.tiff",width=150,height=150,units='mm',res=1000)
+ plot_model(M2,type="est",show.p=TRUE,order.terms = c(1,10,2,11,3,12,4,13,5,14,6,15,7,16,8,17,9,18),transfrom=NULL,show.values=TRUE,value.offset = .4)
+ dev.off()
+ M3<-glmer.nb(Parasitoid~Total_Biomass+Bare.Ground+Litter+PARintercept+P_Live+
+                Lig_Live+OC_Live+N_Live+CN_Live+
+                Total_Biomass:cover+Bare.Ground:cover+Litter:cover+PARintercept:cover+P_Live:cover+Lig_Live:cover+OC_Live:cover+N_Live:cover+CN_Live:cover+PARintercept:cover+
+                (1|Lot),data=bug)
+ summary(M3,type=2)
+ tiff(filename="glmerpar.tiff",width=150,height=150,units='mm',res=1000)
+ plot_model(M3,type="est",show.p=TRUE,order.terms = c(1,10,2,11,3,12,4,13,5,14,6,15,7,16,8,17,9,18),show.values=TRUE,value.offset = .4)
+ dev.off()
+ M4<-glmer.nb(Pollinator~Total_Biomass+Bare.Ground+Litter+PARintercept+P_Live+
+                Lig_Live+OC_Live+N_Live+CN_Live+
+                Total_Biomass:cover+Bare.Ground:cover+Litter:cover+PARintercept:cover+P_Live:cover+Lig_Live:cover+OC_Live:cover+N_Live:cover+CN_Live:cover+PARintercept:cover+
+                (1|Lot),data=bug)
+ tiff(filename="glmerpoll.tiff",width=150,height=150,units='mm',res=1000)
+ plot_model(M4,type="est",show.p=TRUE,order.terms = c(1,10,2,11,3,12,4,13,5,14,6,15,7,16,8,17,9,18),show.values=TRUE,value.offset = .4)
+ dev.off()
+ summary(M4,type=2)
+  tab_model(M1,M2,M3,M4,show.ci=FALSE,show.est=FALSE,show.stat=TRUE)
+  
+  tiff(filename="1.tiff",width=140,height=100,units='mm',res=1000)
+  dev.off()
+
+   
+   ##richness gglmer
+  M1<-glmer.nb(Herbivore_R~Total_Biomass+Bare.Ground+Litter+PARintercept+P_Live+
+                 Lig_Live+OC_Live+N_Live+CN_Live+
+                 Total_Biomass:cover+Bare.Ground:cover+Litter:cover+PARintercept:cover+P_Live:cover+Lig_Live:cover+OC_Live:cover+N_Live:cover+CN_Live:cover+PARintercept:cover+
+                 (1|Lot),data=bug)
+  tiff(filename="glmerherbr.tiff",width=150,height=150,units='mm',res=1000)
+  plot_model(M1,type="est",show.p=TRUE,order.terms = c(1,10,2,11,3,12,4,13,5,14,6,15,7,16,8,17,9,18),transfrom=NULL,show.values=TRUE,value.offset = .4)
+  dev.off()
+  summary(M1,type=2)
+  M2<-glmer.nb(Predator_R~Total_Biomass+Bare.Ground+Litter+PARintercept+P_Live+
+                 Lig_Live+OC_Live+N_Live+CN_Live+
+                 Total_Biomass:cover+Bare.Ground:cover+Litter:cover+PARintercept:cover+P_Live:cover+Lig_Live:cover+OC_Live:cover+N_Live:cover+CN_Live:cover+PARintercept:cover+
+                 (1|Lot),data=bug)
+  tiff(filename="glmerpredr.tiff",width=150,height=150,units='mm',res=1000)
+  plot_model(M2,type="est",show.p=TRUE,order.terms = c(1,10,2,11,3,12,4,13,5,14,6,15,7,16,8,17,9,18),transfrom=NULL,show.values=TRUE,value.offset = .4)
+  dev.off()
+  summary(M2,type=2)
+  M3<-glmer.nb(Parasitoid_R~Total_Biomass+Bare.Ground+Litter+PARintercept+P_Live+
+                 Lig_Live+OC_Live+N_Live+CN_Live+
+                 Total_Biomass:cover+Bare.Ground:cover+Litter:cover+PARintercept:cover+P_Live:cover+Lig_Live:cover+OC_Live:cover+N_Live:cover+CN_Live:cover+PARintercept:cover+
+                 (1|Lot),data=bug)
+  tiff(filename="glmerparr.tiff",width=150,height=150,units='mm',res=1000)
+  plot_model(M3,type="est",show.p=TRUE,order.terms = c(1,10,2,11,3,12,4,13,5,14,6,15,7,16,8,17,9,18),show.values=TRUE,value.offset = .4)
+  dev.off()
+  summary(M3,type=2)
+  M4<-glmer.nb(Pollinator_R~Total_Biomass+Bare.Ground+Litter+PARintercept+P_Live+
+                 Lig_Live+OC_Live+N_Live+CN_Live+
+                 Total_Biomass:cover+Bare.Ground:cover+Litter:cover+PARintercept:cover+P_Live:cover+Lig_Live:cover+OC_Live:cover+N_Live:cover+CN_Live:cover+PARintercept:cover+
+                 (1|Lot),data=bug)
+  tiff(filename="glmerpoll.tiff",width=150,height=150,units='mm',res=1000)
+  plot_model(M4,type="est",show.p=TRUE,order.terms = c(1,10,2,11,3,12,4,13,5,14,6,15,7,16,8,17,9,18),show.values=TRUE,value.offset = .4)
+  dev.off()
+  summary(M4,type=2)
+  tab_model(M1,M2,M3,M4,show.ci=FALSE,show.est=FALSE,show.stat=TRUE) 
+  ##biomass gglmer
+  M1<-lmer(Herbivore.y~cover+Total_Biomass+cover+P_Live+
+             Lig_Live+OC_Live+N_Live+CN_Live+
+             Total_Biomass:cover+P_Live:cover+Lig_Live:cover+OC_Live:cover+N_Live:cover+CN_Live:cover+
+             (1|Lot),data=biobug)
+  summary(M1)
+  M2<-glmer.nb(Predator.y~cover+Total_Biomass+cover+P_Live+
+                 Lig_Live+OC_Live+N_Live+CN_Live+
+                 (1|Lot),data=biobug)
+  summary(M2)
+  M3<-lmer(Parasitoid.y~cover+Total_Biomass+cover+P_Live+
+             Lig_Live+OC_Live+N_Live+CN_Live+
+             Total_Biomass:cover+P_Live:cover+Lig_Live:cover+OC_Live:cover+N_Live:cover+CN_Live:cover+
+             (1|Lot),data=biobug)
+  summary(M3,type=2)
+  M4<-lmer(Pollinator.y~cover+Total_Biomass+cover+P_Live+
+             Lig_Live+OC_Live+N_Live+CN_Live+
+             Total_Biomass:cover+P_Live:cover+Lig_Live:cover+OC_Live:cover+N_Live:cover+CN_Live:cover+
+             (1|Lot),data=biobug)
+  summary(M4,type=2)
+  tab_model(M1,M2,M3,M4,show.ci=FALSE,show.est=FALSE,show.stat=TRUE)
+  
+  ###extra work
+  Anova(M3,type=2)
+  ggplot(bug,aes(x=PARintercept,y= Parasitoid,col=cover))+geom_point()+geom_smooth(method='lm')+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+facet_wrap(~cover)
+  
+  r.squaredGLMM(M1)
+  Anova(glmer.nb(Herbivore~N_Live+(1|Lot),data=filter(core,cover=='Crop')))#sig
+  Anova(glmer.nb(Herbivore~N_Live+(1|Lot),data=filter(core,cover=='Prairie')))#ns
+  ggplot(bug,aes(x=cover,y= Herbivore,col=cover))+geom_point()+geom_smooth()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+facet_wrap(~cover)
+  
+  Anova(lmer(totalabun~CN_Live+(1|Lot),data=filter(core,cover=='Crop')))#ns
+  Anova(lmer(totalabun~CN_Live+(1|Lot),data=filter(core,cover=='Prairie')))#ns
+  ggplot(bug,aes(x=CN_Live,y= totalabun,col=cover))+geom_point()+geom_smooth()+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))+facet_wrap(~cover)
+  
+  Anova(lmer(totalabun~Total_Biomass+(1|Lot),data=filter(core,cover=='Crop')))#ns
+  Anova(lmer(totalabun~Total_Biomass+(1|Lot),data=filter(core,cover=='Prairie')))#ns
+  ggplot(bug,aes(x=Total_Biomass,y= totalabun,col=cover))+geom_point()+geom_smooth(method='lm')+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))
+  
+  ggplot(bug,aes(x=Total_Biomass,y= totalabun,col=cover))+geom_point()+geom_smooth(fill=NA,method='lm',inherit.aes=F,aes(x=Lig_Live,y=totalabun),col='orange2',data=filter(bug,cover=='Crop'))+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))
+  
+  ggplot(bug,aes(x=Lig_Live,y= totalabun))+
+    geom_point(aes(col=cover))+
+    geom_smooth(method='lm',fill=NA)+
+    scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))	
+ 
+  ggplot(bug,aes(x=cover,y= Decomposer))+geom_point()
+  
+  ggplot(core,aes(x=Bare.Ground,y=CN_Live,col=cover))+geom_point()+geom_smooth()
+
+  Anova(glmer.nb(Herbivore~N_Live+(1|Lot),data=filter(bug,cover=='Crop')))#ns
+  Anova(glmer.nb(Herbivore~N_Live+(1|Lot),data=filter(bug,cover=='Prairie')))#ns
+  ggplot(bug,aes(x=CN_Live,y= Herbivore,col=cover))+geom_point()+geom_smooth(fill=NA,method='lm',inherit.aes=F,aes(x=N_Live,y=Herbivore),col='orange2',data=filter(core,cover=='Crop'))+ scale_color_manual(values=c('orange2','darkgreen'),breaks=c('Prairie','Crop'))
+  
+  ggplot(bug,aes(x=N_Live,y= Herbivore))+geom_point()+geom_smooth(method='lm')
+  ggplot(core,aes(x=Total_Biomass,y= Pollinator))+geom_point()+geom_smooth(method='lm')
+  
+  
+  
+  
+  }##direct plant resources
+{
+##abundance
+  cropbug<-subset(bug,cover=="Crop")
+  pbug<-subset(bug,cover=="Prairie")
+  cor.test(pbug$Predator, pbug$Herbivore,  method = "pearson", use = "complete.obs")
+  cor.test(cropbug$Predator, cropbug$Herbivore,  method = "pearson", use = "complete.obs")
+  fit <- glmer.nb(Herbivore ~ Predator+(1|Lot), data=bug)
+  Anova(fit,type=2)
+  
+##get residuals from model
+resid(fit)
+##test normality of residuals
+shapiro.test(resid(fit))
+##this shows you are not justified using an ANOVA on raw data
+  
+   fitp <- glmer.nb(Predator ~ Herbivore+(1|Lot), data=bug)
+Anova(fitp,type=2)
+  
+fitc <- glmer.nb(Predator_R ~ Herbivore_R+(1|Lot), data=subset(bug,cover=="Crop"))
+summary(fitc)
+  ppabun<-ggplot(subset(bug,cover!="Wood"), aes(x=Herbivore, y=Predator,col=cover)) + 
+    geom_jitter()+
+    geom_smooth(method=lm)+ylab("Predator abundance")+xlab("Herbivore abundance")+scale_colour_manual(values=c('darkblue',"chartreuse4"))+theme(legend.position="none")
+  ppabun + theme(panel.grid.major = element_line(colour = NA), 
+    panel.grid.minor = element_line(colour = NA))
+  ##richness
+  fitpr <- glmer.nb(Predator_R ~ Herbivore_R+(1|Lot), data=subset(bug,cover=="Prairie"))
+  Anova(fitpr,type=2)
+  
+  fitcr <- glmer.nb(Predator_R ~ Herbivore_R+(1|Lot), data=subset(bug,cover=="Crop"))
+  Anova(fitcr,type=2)
+ pprich<- ggplot(subset(bug,cover!="Wood"), aes(x=Herbivore_R, y=Predator_R, col=cover)) + 
+    geom_jitter()+
+    geom_smooth(method=lm)+ylab("Predator richness")+xlab("Herbivore richness")+scale_colour_manual(values=c('darkblue',"chartreuse4"))+theme(legend.position="none")
+ pprich + theme(panel.grid.major = element_line(colour = NA), 
+    panel.grid.minor = element_line(colour = NA))
+ tiff(filename="indirectcover.tiff",width=90,height=150,units='mm',res=1000)
+ 
+  ggarrange(ppabun,pprich,ncol = 1,nrow=2)
+  dev.off()
+}##indirect pred:herb 
+{
+  bug1<-all%>%group_by(Lot,quadrant,cover.type)%>%summarise(totalabun=sum(totalabun))%>%gather(Metric, Value, -Lot,totalabun,-cover.type,-quadrant)
+  bug2<-bug1%>%group_by(cover.type,Metric)%>%summarise(Mean=mean(Value),N=n(),SE=(sd(Value,na.rm=T)/sqrt(N)))
+  bug2$cover.type<-factor(bug2$cover.type,levels=c('corn','soybean','wheat','apple','mixed','sorghum','prairie',"wood"))
+  tiff(filename="cover.typeabun.tiff",width=170,height=100,units='mm',res=1000)
+  ggplot(bug2,aes(x=cover.type,y=Mean,fill=cover.type))+geom_bar(stat="identity",position="dodge", colour="black")+geom_errorbar(aes(ymin=Mean+SE,ymax=Mean-SE),position=position_dodge(0.9),width=0.5)+ylab("Mean abundance of functional group")+xlab("Cover type")
+  dev.off()
+  bug1<-all%>%group_by(Lot,quadrant,cover.type)%>%summarise(totalrich=sum(totalrich))%>%gather(Metric, Value, -Lot,totalrich,-cover.type,-quadrant)
+  bug2<-bug1%>%group_by(cover.type,Metric)%>%summarise(Mean=mean(Value),N=n(),SE=(sd(Value,na.rm=T)/sqrt(N)))
+  bug2$cover.type<-factor(bug2$cover.type,levels=c('corn','soybean','wheat','apple','mixed','sorghum','squash/soy','prairie',"wood"))
+  tiff(filename="cover.typerich.tiff",width=170,height=100,units='mm',res=1000)
+  ggplot(bug2,aes(x=cover.type,y=Mean,fill=cover.type))+geom_bar(stat="identity",position="dodge", colour="black")+geom_errorbar(aes(ymin=Mean+SE,ymax=Mean-SE),position=position_dodge(0.9),width=0.5)+ylab("Mean abundance of functional group")+xlab("Cover type")
+  dev.off()
+}# cover heterogenity between cereal crops and prairie -something inherently different going on 
+{
+  broad1<-bug%>%group_by(Lot,cover,Herbivore,Predator,Parasitoid,Pollinator,Herbivore_R,Predator_R,Parasitoid_R,Pollinator_R)%>%filter(quadrant!='0'|quadrant!="2"|quadrant!="4"|quadrant!="6"|quadrant!="8"|quadrant!="10")%>%filter(cover=="Prairie")
+   fxnp<-read.csv('/Users/aleks/Desktop/correct csv files/concentrated stats1.csv') 
+   fxnpp<-fxnp%>%group_by(Lot,cover,quadrant)%>%summarise(forb=mean(X..forb),c3=mean(X.c3.grass),c4=mean(X.c4.grass),richness=mean(total.species.count))
+  r1<-merge(broad1,fxnpp)
+  r1.1<-r1[,c(1,2,3,29:32,46:49,82:85)]
+  r2<-r1.1%>%gather(Metric, Abundance,-quadrant, -Lot,-cover,Herbivore,Predator,Parasitoid,Pollinator,Herbivore_R,Predator_R,Parasitoid_R,Pollinator_R,-forb,-c3,-c4,-richness)
+  #Anova(lmer(Abundance~c3*Metric+c4*Metric+forb*Metric+richness*Metric+(1|Lot),data=r2))
+  
+  summary(glmer.nb(Herbivore~c3+c4+forb+richness+(1|Lot),data=r1))
+  summary(glmer.nb(Predator~c3+c4+forb+richness+(1|Lot),data=r1))
+  summary(glmer.nb(Parasitoid~c3+c4+forb+richness+(1|Lot),data=r1))
+  summary(glmer.nb(Pollinator~c3+c4+forb+richness+(1|Lot),data=r1))
+ 
+  summary(glmer.nb(Herbivore_R~c3+c4+forb+richness+(1|Lot),data=r1))
+  summary(glmer.nb(Predator_R~c3+c4+forb+richness+(1|Lot),data=r1))
+  summary(glmer.nb(Parasitoid_R~c3+c4+forb+richness+(1|Lot),data=r1))
+  summary(glmer.nb(Pollinator_R~c3+c4+forb+richness+(1|Lot),data=r1))
+  
+  
+   ggplot(subset(r2,Abundance<60),aes(x=forb,y=Abundance,col=Metric))+geom_jitter()+geom_smooth(method="lm",se=FALSE)
+    ggplot(r2,aes(x=c3,y=Abundance,col=Metric))+geom_jitter()+geom_smooth(method="lm",se=FALSE)
+    ggplot(r2,aes(x=c4,y=Abundance,col=Metric))+geom_jitter()+geom_smooth(method="lm",se=FALSE)
+    ggplot(r2,aes(x=richness,y=Abundance,col=Metric))+geom_jitter()+geom_smooth(method="lm",se=FALSE)
+    
+}  ##plant composition 
+  {
+    bug<-read.csv('/Users/aleks/Desktop/correct csv files/graph images/dataframe.csv')%>%filter(core=="1")%>%filter(cover!="Wood")
+    spp.comp<-bug[,c(29:32)]%>%mutate_all(funs(replace(., is.na(.), 0)))
+    env.comp<-bug[,c(2,14,15,20,34:39)]%>% mutate_if(is.numeric, scale)
+    vare.mds<-metaMDS(spp.comp,k=3,distance="bray",autotransform=TRUE)
+    vare.mds
+    stressplot(vare.mds)
+    ordiplot(vare.mds,type="points")
+    ef<-envfit(vare.mds,env.comp,permu=999,na.rm=T)
+    ef
+    stems<-colSums(spp.comp)
+    shnam<-make.cepnames(names(spp.comp))
+    plot(vare.mds,display='sites')
+    sel<-orditorp(vare.mds,display="sp",pcol='blue',pch="+",col="grey")
+    colvector<-c('darkorange','deepskyblue')
+    with(env.comp,points(vare.mds,display='sites',pch=21,bg=colvector[as.factor(cover)],cex=1))
+    with(env.comp,ordiellipse(vare.mds,cover,kind='se',conf=0.95,label=T))
+    plot(ef, p.max=0.05)
+    dev.off()
+    
+  }##nmds for tissue quant and qual
+  
+
+
+##sub-analysis 1:spatial and crop damage 
+{
+  bug<-read.csv('/Users/aleks/Desktop/correct csv files/graph images/dataframe.csv')
+  c.d<-bug%>%select(Lot, cover,quadrant,crop.damage,present,dte,distance.to.edge,Herbivore, Pollinator,Predator, Parasitoid,Herbivore_R,Predator_R,Parasitoid_R,Pollinator_R)%>%filter(cover=="Crop")
+cols<-c('Pollinator'='red',"Parasitoid"='blue',"Predator"='brown',"Herbivore"='black')
+c.d$dte <- as.numeric(c.d$dte)
+str(c.d)
+Anova(lm(Herbivore~Predator,data=subset(c.d,present=="Prairie absent")),type=2)
+
+#crop damage graph 
+c.d2<-c.d[,c(7,8)]
+pairs(c.d2)
+
+Anova(lm(crop.damage~dte,data=c.d),type=2)
+
+#crop damage
+crop<-all%>%group_by(Lot,quadrant,present)%>%summarise(cd=sum(crop.damage))%>%na.omit()
+cropm<-crop%>%group_by(present)%>%summarise(mcd=mean(cd,na.rm=T),sd=sd(cd,na.rm=T),N=n(),SE=(sd/sqrt(N)))
+cropm$present<-factor(cropm$present,levels=c('Prairie absent', "Prairie present"))
+##test with barletts test for equal vairances==not sig so yes they are equal and can use var.equal=T in lm
+bartlett.test(cd~present,data=crop)
+t.test(cd~present,data=crop, paired=FALSE,var.equal=F, conf.level=.95)
+
+#Anova(lmer(cd~present+(1|Lot),data=crop))
+crop<-ggplot(cropm,aes(x=present,y=mcd,fill=present))+ geom_bar(stat="identity", position='dodge',colour="black")+geom_errorbar(aes(ymin=mcd-SE,ymax=mcd+SE),position=position_dodge(0.9),width=0.5,colour="black")+
+  labs(y = "Mean plant damage (% loss)") + 
+  scale_fill_manual(values=c('#1f78b4',"#b2df8a"))+
+  theme(axis.line=element_line(colour="black"),panel.grid.major=element_blank(), panel.grid.minor=element_blank(),panel.border=element_blank(),panel.background=element_blank())+expand_limits(y = 15)
+crop
+#present bugs
+present<-all%>% transform(TYPE=ifelse((Lot=='Beuh'|Lot=='Booth'|Lot=='MacD'|Lot=='VanP'|Lot=='VanP2'|Lot=='VanTil'|Lot=='Verh'|Lot=='Wieh'|Lot=='Lars'),'Prairie present',ifelse((Lot=='Csoff'|Lot=='Gilv'),'Prairie present',ifelse((Lot=='Caugh'|Lot=='Caugh2'|Lot=='Volg'|Lot=='Stew'),'Prairie absent','Exclude'))))%>% filter(TYPE!='Exclude')%>%filter(quadrant!="0")
+grouped<-present%>%group_by(Lot,quadrant,TYPE)%>%summarise(totalabun=sum(totalabun),totalrich=sum(totalrich), Herbivore=sum(Herbivore),Herbivore=sum(Herbivore),Predator=sum(Predator),Parasitoid=sum(Parasitoid),Pollinator=sum(Pollinator))
+presentmean<-grouped%>%group_by(TYPE)%>%summarise(abun=mean(totalabun,na.rm=T),sd=sd(totalabun,na.rm=T),N=n(),SE=(sd/sqrt(N)))#%>%summarise(rich=mean(totalrich,na.rm=T),sd=sd(totalrich,na.rm=T),N=n(),SE=(sd/sqrt(N)))
+presentmean2<-grouped%>%group_by(TYPE)%>%summarise(rich=mean(totalrich,na.rm=T),sd=sd(totalrich,na.rm=T),N=n(),SE=(sd/sqrt(N)))#%>%summarise(rich=mean(totalrich,na.rm=T),sd=sd(totalrich,na.rm=T),N=n(),SE=(sd/sqrt(N)))
+bartlett.test(totalabun~TYPE,data=grouped)
+t.test(totalabun~TYPE,data=grouped, var.equal=T, conf.level=.95)
+t.test(Herbivore~TYPE,data=grouped, var.equal=F, conf.level=.95)
+t.test(totalrich~TYPE,data=grouped, var.equal=F, conf.level=.95)
+t.test(Predator~TYPE,data=grouped, var.equal=F, conf.level=.95)
+t.test(Parasitoid~TYPE,data=grouped, var.equal=F, conf.level=.95)
+t.test(Pollinator~TYPE,data=grouped, var.equal=F, conf.level=.95)
+
+#FXN abun
+group<-present%>%group_by(Lot,quadrant,TYPE)%>%summarise(Herbivore=sum(Herbivore),Predator=sum(Predator),Parasitoid=sum(Parasitoid),Pollinator=sum(Pollinator))%>%gather(Metric, Value, -Lot,Herbivore,Predator,Parasitoid,Pollinator,-TYPE,-quadrant)
+cover<-group%>%group_by(TYPE,Metric)%>%summarise(Mean=mean(Value),N=n(),SE=(sd(Value,na.rm=T)/sqrt(N)))
+abun<-ggplot(cover,aes(x=Metric,y=Mean,fill=Metric))+geom_bar(stat="identity",position="dodge", colour="black")+geom_errorbar(aes(ymin=Mean+SE,ymax=Mean-SE),position=position_dodge(0.9),width=0.5)+ylab("Mean Abundance")+xlab("Functional group")+facet_wrap(~TYPE)+theme(panel.grid.major = element_line(linetype = "blank"), 
+                                                                                                                                                                                                                                                                                       panel.grid.minor = element_line(linetype = "blank"), 
+                                                                                                                                                                                                                                                                                        panel.background = element_rect(fill = "gray94"))+scale_fill_manual(values=c('#54278f','#2c7fb8','#ffffcc','#a1dab4'))
+abun
+#richness
+group<-present%>%group_by(Lot,quadrant,TYPE)%>%summarise(Herbivore=sum(Herbivore_R),Predator=sum(Predator_R),Parasitoid=sum(Parasitoid_R),Pollinator=sum(Pollinator_R))%>%gather(Metric, Value, -Lot,Herbivore,Predator,Parasitoid,Pollinator,-TYPE,-quadrant)
+cover<-group%>%group_by(TYPE,Metric)%>%summarise(Mean=mean(Value),N=n(),SE=(sd(Value,na.rm=T)/sqrt(N)))
+rich<-ggplot(cover,aes(x=Metric,y=Mean,fill=Metric))+geom_bar(stat="identity",position="dodge", colour="black")+geom_errorbar(aes(ymin=Mean+SE,ymax=Mean-SE),position=position_dodge(0.9),width=0.5)+ylab("Mean Richness")+xlab("Functional group")+facet_wrap(~TYPE)+theme(panel.grid.major = element_line(linetype = "blank"), 
+                                                                                                                                                                                                                                                                 panel.grid.minor = element_line(linetype = "blank"), 
+                                                                                                                                                                                                                                                                 panel.background = element_rect(fill = "gray94"))+scale_fill_manual(values=c('#54278f','#2c7fb8','#ffffcc','#a1dab4'))
+
+tiff(filename="presentar.tiff",width=250,height=300,units='mm',res=1000)
+ggarrange(abun,rich,nrow=2,ncol=1,legend=FALSE)
+dev.off()
+
+
+#abundance
+abun<-ggplot(presentmean,aes(x=TYPE,y=abun,fill=TYPE))+ geom_bar(stat="identity", position='dodge',colour="black")+geom_errorbar(aes(ymin=abun-SE,ymax=abun+SE),position=position_dodge(0.9),width=0.5,colour="black")+
+  labs(y = "Mean abundance") + 
+  scale_fill_manual(values=c('#1f78b4',"#b2df8a"))+
+  theme(axis.line=element_line(colour="black"),panel.grid.major=element_blank(), panel.grid.minor=element_blank(),panel.border=element_blank(),panel.background=element_blank())
+abun
+#richness
+rich<-ggplot(presentmean2,aes(x=TYPE,y=rich,fill=TYPE))+ geom_bar(stat="identity", position='dodge',colour="black")+geom_errorbar(aes(ymin=rich-SE,ymax=rich+SE),position=position_dodge(0.9),width=0.5,colour="black")+
+  labs(y = "Mean richness") + 
+  scale_fill_manual(values=c('#1f78b4',"#b2df8a"))+
+  theme(axis.line=element_line(colour="black"),panel.grid.major=element_blank(), panel.grid.minor=element_blank(),panel.border=element_blank(),panel.background=element_blank())
+rich
+tiff(filename="present.tiff",width=250,height=100,units='mm',res=1000)
+ggarrange(abun,rich,crop,nrow=1,ncol=3,legend=FALSE)
+dev.off()
+##spatial 
+spatial<-all%>%select(Lot, cover,quadrant,crop.damage,present,dte,Herbivore, NaturalEnemy,Pollinator,Predator, Parasitoid)%>%filter(cover=="Crop")%>%na.omit()
+spatial$dte <- as.numeric(spatial$dte)
+spatial$present<-factor(spatial$present,levels=c('Prairie present', "Prairie absent"))
+
+cols<-c('Pollinator'='#a1dab4',"Parasitoid"='#2c7fb8',"Predator"='#ffffcc',"Herbivore"='#54278f')
+#distance ot edge graph 
+
+tiff(filename="spatial.tiff",width=170,height=100,units='mm',res=1000)
+ggplot(spatial,aes(x=dte))+
+  geom_point(aes(y=Herbivore, colour="Herbivore"))+
+  geom_smooth(aes(dte,Herbivore),method='lm',se = FALSE,col='#54278f')+
+  geom_point(aes(y=Pollinator, colour="Pollinator"))+
+  geom_smooth(aes(dte,Pollinator),method='lm',se = FALSE,col='#a1dab4')+
+  geom_point(aes(y=Parasitoid, colour="Parasitoid"))+
+  geom_smooth(aes(dte,Parasitoid),method='lm',se = FALSE,col="#2c7fb8")+
+  geom_point(aes(y=Predator, colour="Predator"))+
+  geom_smooth(aes(dte,Predator),method='lm',se = FALSE,col='#ffffcc')+
+  ylab('Abundance') +xlab('distance to edge (m)')+facet_wrap(~present)+
+  scale_colour_manual(name="Functional groups",values=cols) + theme(panel.grid.major = element_line(linetype = "blank"), 
+    panel.grid.minor = element_line(linetype = "blank"), 
+    panel.background = element_rect(fill = "gray92"))+scale_y_continuous(limit=c(0,25))
+dev.off()
+
+
+ggplot(spatial,aes(x=dte))+
+  geom_point(aes(y=crop.damage))+geom_smooth(aes(dte,crop.damage),method='lm',se=TRUE)+ylab('Crop damage') +xlab('distance to edge (m)')+facet_wrap(~present)+
+  theme(panel.grid.major = element_line(linetype = "blank"), 
+                                                                    panel.grid.minor = element_line(linetype = "blank"), 
+                                                                                  panel.background = element_rect(fill = "gray92"))
+dev.off()
+#farms with prairie 
+prairie<-spatial%>%filter(present=="Prairie present")
+noprairie<-spatial%>%filter(present=="Prairie absent")
+Anova(glmer.nb(Herbivore~dte+(1|Lot),data=noprairie))
+summary(glmer.nb(Pollinator~dte*present+(1|Lot),data=spatial))
+
+}
+
+
